@@ -219,9 +219,16 @@ This client works with any email provider that supports IMAP/SMTP with app-speci
 - **pystray**: System tray integration
 - **Pillow**: Image processing
 
-## importent note for mack / linux users:
-**i tested only on windows, hence i am not aware of its usibility in mack / linux.**
-**i am not sure regarding availibility and functionality of wxpython and other libraries used in this project in these operating systems.**
+## ⚠️ Platform Support Note (macOS / Linux)
+
+This project has been **developed and tested only on Windows**.
+
+At the moment:
+- I cannot confirm full usability on **macOS or Linux**
+- Availability and behavior of **wxPython and other dependencies** may vary across platforms
+- Some features (especially accessibility-related behavior) may not work as intended outside Windows
+
+Contributions, testing reports, and platform-specific improvements from macOS and Linux users are **very welcome**.
 
 ## ⚠️ Project Status
 

@@ -26,7 +26,7 @@ A **fully accessible, free, desktop email client** built with wxPython, designed
 ### For End Users
 
 **Download the latest release:**
-1. Visit the [Releases](https://github.com/abhisheksraut/accessible_email_client/releases) page
+1. Visit the [Releases](https://github.com/AbhishekSRaut/accessible-email-client/releases) page
 2. Download the installer for your platform
 3. Run the installer and follow the setup wizard
 4. Launch the application and add your first email account
@@ -43,8 +43,8 @@ A **fully accessible, free, desktop email client** built with wxPython, designed
 
 1. **Clone the repository:**
    ```bash
-   git clone https://github.com/abhisheksraut/accessible_email_client.git
-   cd accessible_email_client
+   git clone https://github.com/AbhishekSRaut/accessible-email-client.git
+   cd accessible-email-client
    ```
 
 2. **Create a virtual environment (recommended):**
@@ -296,14 +296,14 @@ See the [LICENSE](LICENSE) file for full details.
 
 ## 📞 Support
 
-- **Issues**: [GitHub Issues](https://github.com/YOUR_USERNAME/accessible_email_client/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/YOUR_USERNAME/accessible_email_client/discussions)
+- **Issues**: [GitHub Issues](https://github.com/AbhishekSRaut/accessible-email-client/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/AbhishekSRaut/accessible-email-client/discussions)
 
 ## 🔒 Security
 
 This application stores credentials securely using the system keyring. Passwords are never stored in plain text.
 
-If you discover a security vulnerability, please email [YOUR_EMAIL] instead of using the issue tracker.
+If you discover a security vulnerability, please email [raut.abhishek@zohomail.in] instead of using the issue tracker.
 
 ---
 

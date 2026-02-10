@@ -7,8 +7,8 @@
 #define MyAppName "Accessible Email Client"
 #define MyAppVersion "1.1"
 #define MyAppPublisher "Abhishek Raut"
-#define MyAppURL "https://github.com/abhisheksraut"
-#define MyAppExeDir "C:\\path\\to\\dist\\AccessibleEmailClient"
+#define MyAppURL "https://github.com/AbhishekSRaut/accessible-email-client"
+#define MyAppExeDir "E:\python\custom_email\accessible_email_client\dist\AccessibleEmailClient"
 #define MyAppExeName "AccessibleEmailClient.exe"
 
 [Setup]
@@ -22,11 +22,13 @@ AppUpdatesURL={#MyAppURL}
 DefaultDirName={pf}\{#MyAppName}
 DefaultGroupName={#MyAppName}
 DisableProgramGroupPage=yes
-OutputDir=.
+OutputDir=..\release
 OutputBaseFilename=AccessibleEmailClient-Setup
 Compression=lzma
 SolidCompression=yes
 LicenseFile=..\LICENSE
+AppMutex=AccessibleEmailClientMutex
+WizardStyle=modern
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

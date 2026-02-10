@@ -5,7 +5,6 @@ __pycache__/
 *.db
 *.sqlite
 *.sqlite3
-accessible_email_client/database/config.json
 *.log
 *.tmp
 *.bak
@@ -18,3 +17,4 @@ dist/
 *.egg-info/
 .vscode/
 skills/
+release/

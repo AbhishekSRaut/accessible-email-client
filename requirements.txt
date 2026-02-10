@@ -1,0 +1,9 @@
+
+wxPython
+accessible_output2
+keyring
+IMAPClient
+yagmail
+windows-toasts
+pystray
+Pillow

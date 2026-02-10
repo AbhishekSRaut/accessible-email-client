@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Accessible Email Client – User Guide (v1.1)</title>
+  <style>
+    body {
+      font-family: "Segoe UI", Tahoma, Arial, sans-serif;
+      line-height: 1.6;
+      margin: 24px;
+      color: #1b1b1b;
+      background: #ffffff;
+    }
+    h1, h2, h3 {
+      color: #0b2a4a;
+      margin-top: 28px;
+    }
+    code, kbd {
+      font-family: Consolas, "Courier New", monospace;
+      background: #f4f4f4;
+      padding: 2px 4px;
+      border-radius: 3px;
+    }
+    kbd {
+      border: 1px solid #cfcfcf;
+      box-shadow: 0 1px 0 #e6e6e6;
+    }
+    ul {
+      margin: 8px 0 8px 20px;
+    }
+    .note {
+      background: #f8fbff;
+      border-left: 4px solid #3b82f6;
+      padding: 10px 12px;
+      margin: 10px 0;
+    }
+    .warning {
+      background: #fff6f6;
+      border-left: 4px solid #ef4444;
+      padding: 10px 12px;
+      margin: 10px 0;
+    }
+  </style>
+</head>
+<body>
+  <h1>Accessible Email Client – User Guide (v1.1)</h1>
+
+  <p>
+    A keyboard‑first, screen‑reader‑friendly desktop email client built with wxPython.
+    Accessibility is the highest priority.
+  </p>
+
+  <h2>Quick Start</h2>
+  <ol>
+    <li>Launch the app.</li>
+    <li>Add an account (App‑Specific Password required).</li>
+    <li>Select a folder to load messages.</li>
+    <li>Use the message list to open and read emails.</li>
+  </ol>
+
+  <h2>Core Features</h2>
+  <ul>
+    <li>Multi‑account support with secure credential storage.</li>
+    <li>IMAP read + SMTP send with TLS/SSL.</li>
+    <li>Folder list (standard + provider folders).</li>
+    <li>Message list with paging and thread expand/collapse.</li>
+    <li>Accessible message rendering with optional HTML normalization.</li>
+    <li>Reply, Reply All, Forward, Delete, Archive, Read/Unread.</li>
+    <li>Offline cache for headers and bodies.</li>
+    <li>Notification sounds and toasts (customizable).</li>
+    <li>Keyboard shortcuts editor.</li>
+    <li>Signature support (global or per account).</li>
+    <li>Audible progress for long operations.</li>
+  </ul>
+
+  <h2>Accessibility Highlights</h2>
+  <ul>
+    <li>Fully usable without a mouse.</li>
+    <li>Screen‑reader announcements for major actions and status.</li>
+    <li>Keyboard navigation for all dialogs and lists.</li>
+    <li>Dialogs support <kbd>Esc</kbd> to cancel/close.</li>
+  </ul>
+
+  <h2>App‑Specific Passwords</h2>
+  <p>
+    Many email providers require an <strong>App‑Specific Password</strong> when you use
+    a third‑party email client. This is a special password that is different from your
+    normal account password and is used only by this app.
+  </p>
+  <div class="note">
+    If your account has 2‑Step Verification or Multi‑Factor Authentication enabled,
+    an App‑Specific Password is usually required for IMAP/SMTP access.
+  </div>
+  <p>General steps (provider UI may differ):</p>
+  <ol>
+    <li>Sign in to your email provider’s account settings.</li>
+    <li>Enable 2‑Step Verification (if not already enabled).</li>
+    <li>Find “App Passwords” or “App‑Specific Passwords”.</li>
+    <li>Create a new app password (choose “Mail” or “Other”).</li>
+    <li>Copy the generated password and paste it into the app’s <strong>App Password</strong> field.</li>
+  </ol>
+  <div class="warning">
+    Do not use your normal account password in this app.
+  </div>
+
+  <h2>Adding an Account</h2>
+  <p>When adding an account, you’ll see these fields:</p>
+  <ul>
+    <li><strong>Email Address:</strong> Your full email address (e.g., user@example.com).</li>
+    <li><strong>App Password:</strong> The app‑specific password from your provider.</li>
+    <li><strong>IMAP Server:</strong> Incoming mail server (e.g., imap.gmail.com).</li>
+    <li><strong>IMAP Port:</strong> Usually <strong>993</strong> for SSL/TLS.</li>
+    <li><strong>SMTP Server:</strong> Outgoing mail server (e.g., smtp.gmail.com).</li>
+    <li><strong>SMTP Port:</strong> Usually <strong>465</strong> for SSL/TLS or <strong>587</strong> for STARTTLS.</li>
+  </ul>
+
+  <div class="note">
+    Common secure ports:
+    <ul>
+      <li>IMAP: <strong>993</strong> (SSL/TLS)</li>
+      <li>SMTP: <strong>465</strong> (SSL/TLS) or <strong>587</strong> (STARTTLS)</li>
+    </ul>
+  </div>
+
+  <h2>Settings</h2>
+  <p>Open <strong>Settings</strong> from the menu.</p>
+
+  <h3>Accessibility</h3>
+  <ul>
+    <li><strong>Normalize HTML for screen readers</strong> — Converts complex HTML into a simpler structure for easier navigation.</li>
+  </ul>
+
+  <h3>Notifications</h3>
+  <ul>
+    <li><strong>Silent mode (no sound)</strong> — Disables notification sounds.</li>
+    <li><strong>Notification Sounds...</strong> — Configure sound rules by scope (global/account), type (default/folder/sender), and sound.</li>
+  </ul>
+
+  <h3>Keyboard</h3>
+  <ul>
+    <li><strong>Keyboard Shortcuts...</strong> — View and customize shortcuts. Alphanumeric shortcuts require Ctrl or Alt.</li>
+  </ul>
+
+  <h3>Signatures</h3>
+  <ul>
+    <li><strong>Signatures...</strong> — Create global or per‑account signatures. Supports plain text and HTML, with position control.</li>
+  </ul>
+
+  <h2>Help Menu</h2>
+  <ul>
+    <li><strong>Contact Developer (Email)</strong> — Opens a compose dialog addressed to <code>raut.abhishek@zohomail.in</code>.</li>
+    <li><strong>Open Developer GitHub</strong> — Opens the developer profile in your browser.</li>
+  </ul>
+
+  <h2>Basic Keyboard Shortcuts</h2>
+  <h3>Global</h3>
+  <ul>
+    <li><kbd>Ctrl</kbd> + <kbd>N</kbd> — Compose</li>
+    <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> — Reply</li>
+    <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> — Reply All</li>
+    <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> — Forward</li>
+    <li><kbd>Ctrl</kbd> + <kbd>Q</kbd> — Exit</li>
+    <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> — Add Account</li>
+    <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> — Create Folder</li>
+    <li><kbd>Ctrl</kbd> + <kbd>S</kbd> — Toggle Silent Mode</li>
+    <li><kbd>Ctrl</kbd> + <kbd>K</kbd> — Manage Shortcuts</li>
+    <li><kbd>F5</kbd> — Refresh List</li>
+    <li><kbd>Ctrl</kbd> + <kbd>Right</kbd> — Next Page</li>
+    <li><kbd>Ctrl</kbd> + <kbd>Left</kbd> — Previous Page</li>
+    <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>L</kbd> — Focus Message List</li>
+  </ul>
+
+  <h3>Message List</h3>
+  <ul>
+    <li><kbd>Enter</kbd> — Open selected message</li>
+    <li><kbd>Right Arrow</kbd> — Expand thread</li>
+    <li><kbd>Left Arrow</kbd> — Collapse thread</li>
+    <li><kbd>Delete</kbd> — Delete selected</li>
+    <li><kbd>Ctrl</kbd> + <kbd>Alt</kbd> + <kbd>A</kbd> — Archive selected</li>
+    <li><kbd>F6</kbd> — Focus actions panel</li>
+  </ul>
+
+  <h3>Message Viewer</h3>
+  <ul>
+    <li><kbd>Tab</kbd> — Move to commands/actions</li>
+    <li><kbd>Shift</kbd> + <kbd>Tab</kbd> — Return to message list</li>
+    <li>Use the <strong>Back to Message List</strong> button if keyboard focus is inside the message body.</li>
+  </ul>
+
+  <h2>Notes on Shortcuts and Screen Readers</h2>
+  <ul>
+    <li>Some screen reader modes intercept keys inside the message body. If a shortcut doesn’t fire, switch to focus mode or use the on‑screen buttons.</li>
+    <li>The app registers system‑level hotkeys for key actions while reading. They only execute when the app is active.</li>
+  </ul>
+
+  <h2>Troubleshooting</h2>
+  <ul>
+    <li>If a folder appears empty briefly, cached emails load first and then the list updates from the server.</li>
+    <li>If a message shows as unread after opening, it will update after the read flag is synced.</li>
+  </ul>
+</body>
+</html>

@@ -483,7 +483,12 @@ class MainFrame(wx.Frame):
         manage_rules_item = folder_menu.Append(wx.ID_ANY, "Manage Rules...", "Manage smart folder rules")
         menubar.Append(folder_menu, "F&older")
         
-        # Help Menu
+        # Settings Menu (before Help)
+        settings_menu = wx.Menu()
+        settings_item = settings_menu.Append(wx.ID_ANY, "Settings...", "Open settings")
+        menubar.Append(settings_menu, "&Settings")
+
+        # Help Menu (last)
         help_menu = wx.Menu()
         about_item = help_menu.Append(wx.ID_ABOUT, "About", "About this application")
         contact_item = help_menu.Append(wx.ID_ANY, "Contact Developer (Email)", "Email the developer")
@@ -506,11 +511,6 @@ class MainFrame(wx.Frame):
         self.Bind(wx.EVT_MENU, self.on_manage_accounts, manage_accounts_item)
         self.Bind(wx.EVT_MENU, self.on_create_folder, create_folder_item)
         self.Bind(wx.EVT_MENU, self.on_manage_rules, manage_rules_item)
-
-        # Settings Menu
-        settings_menu = wx.Menu()
-        settings_item = settings_menu.Append(wx.ID_ANY, "Settings...", "Open settings")
-        menubar.Append(settings_menu, "&Settings")
         self.Bind(wx.EVT_MENU, self.on_open_settings, settings_item)
 
     def on_add_account(self, event):

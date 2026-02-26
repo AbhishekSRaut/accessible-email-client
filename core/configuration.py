@@ -3,13 +3,14 @@ import json
 import os
 import logging
 from typing import Dict, Any
+from ..utils.appdata import get_appdata_dir
 
 logger = logging.getLogger(__name__)
 
 class Configuration:
     def __init__(self, config_file: str | None = None):
         if config_file is None:
-            base_dir = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "database"))
+            base_dir = get_appdata_dir()
             config_file = os.path.join(base_dir, "config.json")
         self.config_file = config_file
         self.data: Dict[str, Any] = {}

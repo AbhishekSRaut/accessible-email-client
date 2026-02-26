@@ -58,7 +58,7 @@ class RulesDialog(wx.Dialog):
         # Condition Field
         grid.Add(wx.StaticText(panel, label="If:"), 0, wx.ALIGN_CENTER_VERTICAL)
         cond_sizer = wx.BoxSizer(wx.HORIZONTAL)
-        self.cond_field = AccessibleChoice(panel, choices=["Sender", "Subject"])
+        self.cond_field = AccessibleChoice(panel, choices=["Sender", "Subject", "Recipient"])
         self.cond_field.SetSelection(0)
         self.cond_field.init_accessible("Condition field")
         
@@ -130,14 +130,13 @@ class RulesDialog(wx.Dialog):
             
         if self.rules_list.GetCount() > 0:
             self.rules_list.SetSelection(0)
+            self.delete_btn.Enable()
+            self.edit_btn.Enable()
         else:
             self.rules_list.Append("No rules defined")
             self.rules_list.SetSelection(0)
             self.delete_btn.Disable()
             self.edit_btn.Disable()
-        if self.rules_list.GetCount() > 0:
-            self.delete_btn.Enable()
-            self.edit_btn.Enable()
         self._reset_edit_state()
 
     def _reset_edit_state(self):
@@ -220,6 +219,9 @@ class RulesDialog(wx.Dialog):
         elif "subject" in conditions:
             self.cond_field.SetSelection(1)
             self.cond_value.SetValue(conditions.get("subject", ""))
+        elif "recipient" in conditions:
+            self.cond_field.SetSelection(2)
+            self.cond_value.SetValue(conditions.get("recipient", ""))
 
         actions = rule.get("actions", {})
         target = actions.get("move_to")

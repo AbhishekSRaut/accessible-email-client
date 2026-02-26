@@ -20,11 +20,29 @@ class Speaker:
                 cls._instance.output = None
         return cls._instance
 
+    def _is_window_visible(self):
+        """Check if the main application window is visible."""
+        try:
+            import wx
+            app = wx.GetApp()
+            if app:
+                top = app.GetTopWindow()
+                if top and not top.IsShown():
+                    return False
+        except Exception:
+            pass
+        return True
+
     def speak(self, text: str, interrupt: bool = False):
         """
         Speak the given text using the active screen reader.
+        Skip speech when the main window is hidden (running in background).
         """
         if not text:
+            return
+
+        # Don't speak when app is minimized to tray
+        if not self._is_window_visible():
             return
 
         logger.info(f"Speaking: {text}")

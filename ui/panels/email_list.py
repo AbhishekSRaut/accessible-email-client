@@ -124,49 +124,78 @@ class EmailListPanel(wx.Panel):
 
             raw_threads = self.repository.fetch_threads(self.current_folder, limit=self.limit, offset=self.offset)
 
-            # Apply rules to all folders/pages (if any)
-            emails_to_move = [] # list of (uid, target_folder, email_obj, exclusive)
+            # Apply rules in a loop: after moving emails, new ones may scroll into view
+            max_passes = 10  # safety limit
+            for rule_pass in range(max_passes):
+                emails_to_move = [] # list of (uid, target_folder, email_obj, exclusive)
 
-            def check_and_mark(email_obj):
-                action = rule_manager.apply_rules(email_obj)
-                if action and "move_to" in action:
-                    target = action["move_to"]
-                    if target and self.current_folder and target.lower() != self.current_folder.lower():
-                        exclusive = bool(action.get("exclusive", True))
-                        return (email_obj["uid"], target, email_obj, exclusive)
-                return None
+                def check_and_mark(email_obj):
+                    action = rule_manager.apply_rules(email_obj)
+                    if action and "move_to" in action:
+                        target = action["move_to"]
+                        if rule_pass == 0:  # only print on first pass to avoid spam
+                            print(f"[RULE MATCH] uid={email_obj.get('uid')} sender='{email_obj.get('sender', '')[:40]}' to='{email_obj.get('to', '')}' -> move to '{target}'")
+                        if target and self.current_folder and target.lower() != self.current_folder.lower():
+                            exclusive = bool(action.get("exclusive", True))
+                            return (email_obj["uid"], target, email_obj, exclusive)
+                    return None
 
-            for thread in raw_threads:
-                # Check root
-                res = check_and_mark(thread)
-                if res:
-                    emails_to_move.append(res)
-                
-                # Check children
-                for child in thread.get("children", []):
-                    res = check_and_mark(child)
+                for thread in raw_threads:
+                    # Check root
+                    res = check_and_mark(thread)
                     if res:
-                         emails_to_move.append(res)
+                        emails_to_move.append(res)
+                    
+                    # Check children
+                    for child in thread.get("children", []):
+                        res = check_and_mark(child)
+                        if res:
+                             emails_to_move.append(res)
 
-            # Execute moves
-            if emails_to_move:
+                if not emails_to_move:
+                    break  # No more matches, done
+
+                # Execute moves
                 from collections import defaultdict
                 moves_by_folder = defaultdict(list)
                 
                 for uid, target, obj, exclusive in emails_to_move:
                     moves_by_folder[target].append((uid, exclusive))
                     
+                batch_moved = 0
                 for target, items in moves_by_folder.items():
+                    # Auto-create target folder if it doesn't exist
+                    try:
+                        self.repository.imap_client.create_folder(target)
+                    except:
+                        pass  # folder may already exist
+                    
+                    # Re-select source folder in read-write mode (fetch_threads opened readonly)
+                    self.repository.imap_client.select_folder(self.current_folder, readonly=False)
+                    
                     move_uids = [uid for uid, exclusive in items if exclusive]
                     copy_uids = [uid for uid, exclusive in items if not exclusive]
-                    if move_uids and self.repository.move_emails(move_uids, target):
-                        moved_count += len(move_uids)
+                    if move_uids:
+                        print(f"[RULE MOVE] Pass {rule_pass+1}: Moving {len(move_uids)} emails to '{target}'")
+                        if self.repository.move_emails(move_uids, target):
+                            batch_moved += len(move_uids)
+                            moved_count += len(move_uids)
+                        else:
+                            print(f"[RULE MOVE] FAILED to move emails to '{target}'")
                     if copy_uids and self.repository.copy_emails(copy_uids, target):
+                        batch_moved += len(copy_uids)
                         moved_count += len(copy_uids)
-                        
-                if moved_count > 0:
-                    # Reload to reflect changes
-                    raw_threads = self.repository.fetch_threads(self.current_folder, limit=self.limit, offset=self.offset)
+
+                if batch_moved == 0:
+                    break  # Moves failed, don't loop forever
+                    
+                # Re-fetch to get newly visible emails and apply rules again
+                raw_threads = self.repository.fetch_threads(self.current_folder, limit=self.limit, offset=self.offset)
+
+            if moved_count > 0:
+                print(f"[RULES] Total moved: {moved_count} emails")
+                # Final fetch for display
+                raw_threads = self.repository.fetch_threads(self.current_folder, limit=self.limit, offset=self.offset)
 
         except Exception as e:
             error = e
@@ -373,6 +402,8 @@ class EmailListPanel(wx.Panel):
         import threading
         def worker():
             try:
+                # Re-select folder in read-write mode (fetch_threads opened readonly)
+                self.repository.imap_client.select_folder(folder, readonly=False)
                 if self.repository.add_flags([uid], ["\\Seen"], folder_name=folder):
                     wx.CallAfter(self._apply_read_flag, uid)
             except Exception as e:

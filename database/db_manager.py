@@ -2,6 +2,7 @@ import sqlite3
 import os
 import logging
 from typing import List, Tuple, Any, Optional
+from ..utils.appdata import get_appdata_dir
 
 logger = logging.getLogger(__name__)
 
@@ -22,7 +23,7 @@ class DBManager:
         """
         Initialize the database with the schema if it doesn't exist.
         """
-        self.db_path = os.path.join(os.path.dirname(__file__), self.DB_NAME)
+        self.db_path = os.path.join(get_appdata_dir(), self.DB_NAME)
         logger.info(f"Database path: {self.db_path}")
 
         schema_path = os.path.join(os.path.dirname(__file__), "schema.sql")
@@ -155,13 +156,13 @@ class DBManager:
         res = self.fetch_one("SELECT id FROM folders WHERE account_id = ? AND name = ?", (account_id, name))
         return res['id'] if res else None
 
-    def upsert_email(self, account_id, folder_id, uid, subject, sender, date, flags, message_id=None, in_reply_to=None, references=None, body_text=None, body_html=None):
+    def upsert_email(self, account_id, folder_id, uid, subject, sender, date, flags, message_id=None, in_reply_to=None, references=None, body_text=None, body_html=None, recipients=None):
         # We use INSERT OR REPLACE or ON CONFLICT UPDATE
         # Unique constraint on (account_id, folder_id, uid)
         
         query = """
-        INSERT INTO emails (account_id, folder_id, uid, subject, sender, date_received, flags, message_id, in_reply_to, references_list, body_text, body_html)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO emails (account_id, folder_id, uid, subject, sender, date_received, flags, message_id, in_reply_to, references_list, body_text, body_html, recipients)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
             subject=excluded.subject,
             sender=excluded.sender,
@@ -169,20 +170,20 @@ class DBManager:
             flags=excluded.flags,
             message_id=excluded.message_id,
             in_reply_to=excluded.in_reply_to,
-            references_list=excluded.references_list
-            -- Body is updated only when provided below.
+            references_list=excluded.references_list,
+            recipients=excluded.recipients
         """
         # If body is provided, update it too. If not (e.g. list fetch), keep existing?
         # Standard list fetch doesn't have body.
         # Only update body when provided.
         
-        params = [account_id, folder_id, uid, subject, sender, date, str(flags), message_id, in_reply_to, references, body_text, body_html]
+        params = [account_id, folder_id, uid, subject, sender, date, str(flags), message_id, in_reply_to, references, body_text, body_html, recipients]
         
         if body_text is None and body_html is None:
              # Logic to avoid overwriting body with NULL
              query = """
-                INSERT INTO emails (account_id, folder_id, uid, subject, sender, date_received, flags, message_id, in_reply_to, references_list)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO emails (account_id, folder_id, uid, subject, sender, date_received, flags, message_id, in_reply_to, references_list, recipients)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
                     subject=excluded.subject,
                     sender=excluded.sender,
@@ -190,14 +191,15 @@ class DBManager:
                     flags=excluded.flags,
                     message_id=excluded.message_id,
                     in_reply_to=excluded.in_reply_to,
-                    references_list=excluded.references_list
+                    references_list=excluded.references_list,
+                    recipients=excluded.recipients
             """
-             params = [account_id, folder_id, uid, subject, sender, date, str(flags), message_id, in_reply_to, references]
+             params = [account_id, folder_id, uid, subject, sender, date, str(flags), message_id, in_reply_to, references, recipients]
         elif body_text or body_html:
              # We have body, update it.
              query = """
-                INSERT INTO emails (account_id, folder_id, uid, subject, sender, date_received, flags, message_id, in_reply_to, references_list, body_text, body_html)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO emails (account_id, folder_id, uid, subject, sender, date_received, flags, message_id, in_reply_to, references_list, body_text, body_html, recipients)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(account_id, folder_id, uid) DO UPDATE SET
                     subject=excluded.subject,
                     sender=excluded.sender,
@@ -207,7 +209,8 @@ class DBManager:
                     in_reply_to=excluded.in_reply_to,
                     references_list=excluded.references_list,
                     body_text=excluded.body_text,
-                    body_html=excluded.body_html
+                    body_html=excluded.body_html,
+                    recipients=excluded.recipients
              """
         
         self.execute_commit(query, tuple(params))

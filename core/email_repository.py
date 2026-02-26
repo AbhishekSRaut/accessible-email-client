@@ -187,7 +187,8 @@ class EmailRepository:
             in_reply_to=email_obj.get("_in_reply_to"),
             references=json.dumps(email_obj.get("_references", [])),
             body_text=None, # List fetch doesn't have body
-            body_html=None
+            body_html=None,
+            recipients=email_obj.get("to")
         )
         
         for child in email_obj.get("children", []):
@@ -200,7 +201,7 @@ class EmailRepository:
         rows = db_manager.get_emails(self.account_id, folder_id, limit, offset)
         if not rows:
             return []
-            
+
         # Convert rows to dicts
         email_map = {}
         for row in rows:
@@ -209,6 +210,7 @@ class EmailRepository:
                 "uid": uid,
                 "subject": row['subject'],
                 "sender": row['sender'],
+                "to": row.get('recipients', ''),
                 "date": row['date_received'],
                 "flags": eval(row['flags']) if row['flags'] else [], # unsafe eval? flags is list repr str
                 "children": [],

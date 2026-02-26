@@ -18,3 +18,4 @@ dist/
 .vscode/
 skills/
 release/
+launcher.spec

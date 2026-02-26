@@ -39,10 +39,10 @@ class RuleManager:
             rules = []
             for row in rows:
                 rules.append({
-                    "id": row[0],
-                    "name": row[1],
-                    "conditions": json.loads(row[2]),
-                    "actions": json.loads(row[3])
+                    "id": row["id"],
+                    "name": row["name"],
+                    "conditions": json.loads(row["condition_json"]),
+                    "actions": json.loads(row["action_json"])
                 })
             return rules
         except Exception as e:
@@ -77,6 +77,11 @@ class RuleManager:
         rules = self.get_rules()
         sender = email_data.get("sender", "").lower()
         subject = email_data.get("subject", "").lower()
+        to = email_data.get("to", "").lower()
+        cc = email_data.get("cc", "").lower()
+        recipients = f"{to}, {cc}"  # Combined for matching
+
+        logger.debug(f"[RULES] Checking {len(rules)} rules against email: sender='{sender}', to='{to}', cc='{cc}', subject='{subject[:50]}'")
 
         for rule in rules:
             conditions = rule["conditions"]
@@ -92,11 +97,22 @@ class RuleManager:
                     # e.g. rule: "mom@gmail.com, dad@gmail.com" -> if sender is either, match.
                     if not any(tv in sender for tv in target_values):
                         match = False
+                        logger.debug(f"[RULES] Rule '{rule['name']}': sender mismatch. Looking for {target_values} in '{sender}'")
                         break
                 elif field == "subject":
                     if not any(tv in subject for tv in target_values):
                         match = False
                         break
+                elif field == "recipient":
+                    # Check both To AND Cc headers — groups.io may put the group in either
+                    if not any(tv in recipients for tv in target_values):
+                        match = False
+                        logger.debug(f"[RULES] Rule '{rule['name']}': recipient mismatch. Looking for {target_values} in to='{to}' cc='{cc}'")
+                        break
+                else:
+                    logger.warning(f"[RULES] Unknown condition field: '{field}'")
+                    match = False
+                    break
             
             if match:
                 logger.info(f"Email matched rule '{rule['name']}'")

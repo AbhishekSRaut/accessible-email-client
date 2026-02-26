@@ -6,6 +6,9 @@ This script uses absolute imports and can be used as PyInstaller entry point
 import sys
 import os
 
+# WebView2 requires Single-Threaded Apartment (STA) COM initialization
+sys.coinit_flags = 2
+
 # Add the parent directory to Python path so we can import accessible_email_client
 if getattr(sys, 'frozen', False):
     # Running as compiled executable
@@ -20,8 +23,37 @@ else:
 
 import wx
 import logging
+import ctypes
 from accessible_email_client.ui.main_frame import MainFrame
 from accessible_email_client.core.configuration import config
+
+# Preload WebView2Loader.dll to help wxWidgets C++ find it in PyInstaller's _internal folder
+if getattr(sys, 'frozen', False):
+    try:
+        dll_path1 = os.path.join(sys._MEIPASS, "wx", "WebView2Loader.dll")
+        dll_path2 = os.path.join(sys._MEIPASS, "WebView2Loader.dll")
+        if os.path.exists(dll_path1):
+            ctypes.CDLL(dll_path1)
+        elif os.path.exists(dll_path2):
+            ctypes.CDLL(dll_path2)
+    except Exception as e:
+        print(f"Warning: Failed to preload WebView2Loader.dll: {e}")
+
+
+# Explicitly import dynamically loaded modules so PyInstaller bundles them automatically
+# This removes the need for --hidden-import arguments in the build command
+import accessible_output2
+import keyring
+import keyring.backends
+# Windows backend specifically needed
+import keyring.backends.Windows
+import imapclient
+import yagmail
+import windows_toasts
+import pystray
+import PIL
+import wx.html2
+import bs4
 
 def main():
     debug_env = os.environ.get("AEC_DEBUG", "").strip().lower() in ["1", "true", "yes", "y", "on"]

@@ -125,6 +125,8 @@ class IMAPClient:
                 # Decode subject
                 subject = self._decode_str(envelope.subject)
                 sender = self._format_address(envelope.from_)
+                to = self._format_address(envelope.to)
+                cc = self._format_address(envelope.cc)
                 date = envelope.date
                 flags = data[b'FLAGS']
                 
@@ -136,6 +138,8 @@ class IMAPClient:
                     "uid": uid,
                     "subject": subject,
                     "sender": sender,
+                    "to": to,
+                    "cc": cc,
                     "date": date,
                     "flags": [f.decode() if isinstance(f, bytes) else f for f in flags],
                     "message_id": message_id,
@@ -202,6 +206,8 @@ class IMAPClient:
                     "uid": uid,
                     "subject": self._decode_str(envelope.subject),
                     "sender": self._format_address(envelope.from_),
+                    "to": self._format_address(envelope.to),
+                    "cc": self._format_address(envelope.cc),
                     "date": envelope.date,
                     "flags": [f.decode() if isinstance(f, bytes) else f for f in data[b'FLAGS']],
                     "message_id": self._decode_str(envelope.message_id),
@@ -316,6 +322,8 @@ class IMAPClient:
                     "uid": uid,
                     "subject": self._decode_str(envelope.subject),
                     "sender": self._format_address(envelope.from_),
+                    "to": self._format_address(envelope.to),
+                    "cc": self._format_address(envelope.cc),
                     "date": envelope.date or internal_date,
                     "flags": [f.decode() if isinstance(f, bytes) else f for f in flags],
                     "children": [],
@@ -467,6 +475,15 @@ class IMAPClient:
         if not self.client:
             return False
 
+        try:
+            # imapclient's move method handles copy + delete + expunge usually, 
+            # or uses MOVE extension if available.
+            self.client.move(uids, target_folder)
+            return True
+        except Exception as e:
+            logger.error(f"Error moving emails to {target_folder}: {e}")
+            return False
+
     def copy_emails(self, uids: List[int], target_folder: str) -> bool:
         """
         Copy emails to another folder.
@@ -482,18 +499,9 @@ class IMAPClient:
         except Exception as e:
             logger.error(f"Error copying emails to {target_folder}: {e}")
             return False
-            
-        try:
-            # imapclient's move method handles copy + delete + expunge usually, 
-            # or uses MOVE extension if available.
-            self.client.move(uids, target_folder)
-            return True
-        except Exception as e:
-            logger.error(f"Error moving emails to {target_folder}: {e}")
-            return False
 
     def add_flags(self, uids: List[int], flags: List[str]) -> bool:
-        """
+        r"""
         Add flags to emails (e.g. \Seen).
         """
         if not self.client:

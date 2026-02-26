@@ -33,6 +33,12 @@ WizardStyle=modern
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"
 
+; -------------------------------
+; NEW: Desktop icon option
+; -------------------------------
+[Tasks]
+Name: "desktopicon"; Description: "Create a &desktop shortcut"; GroupDescription: "Additional icons:"; Flags: unchecked
+
 [Files]
 Source: "{#MyAppExeDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 
@@ -40,5 +46,15 @@ Source: "{#MyAppExeDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdir
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
 Name: "{group}\Uninstall {#MyAppName}"; Filename: "{uninstallexe}"
 
+; -------------------------------
+; NEW: Desktop shortcut (optional)
+; -------------------------------
+Name: "{autodesktop}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"; Tasks: desktopicon
+
 [Run]
 Filename: "{app}\{#MyAppExeName}"; Description: "Launch {#MyAppName}"; Flags: nowait postinstall skipifsilent
+
+; -------------------------------
+; NEW: Open GitHub checkbox on Finish
+; -------------------------------
+Filename: "{#MyAppURL}"; Description: "Open GitHub Repository"; Flags: shellexec postinstall skipifsilent

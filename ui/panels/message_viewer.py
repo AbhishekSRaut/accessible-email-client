@@ -4,6 +4,8 @@ import wx.html2
 import logging
 import html
 import os
+import bs4
+import re
 from email.utils import getaddresses
 from ...core.configuration import config
 from ...utils.accessible_widgets import AccessibleListBox, AccessibleButton
@@ -39,15 +41,34 @@ class MessageViewerPanel(wx.Panel):
 
         # Use WebView for accessible HTML rendering
         try:
-            self.webview = wx.html2.WebView.New(self)
-        except Exception as e:
-            logger.error(f"Failed to initialize WebView: {e}")
-            self.webview = None
-            error_label = wx.StaticText(self, label="Error loading HTML viewer.")
-            sizer.Add(error_label, 1, wx.EXPAND | wx.ALL, 5)
-            return
+            # Force Edge backend explicitly for compiled PyInstaller builds to prevent IE11 fallback
+            logger.info("Attempting to create Edge WebView backend")
+            # In wxPython, Edge backend uses WEBVIEW_EDGE_USER_DATA_FOLDER env var or default path.
+            # Set env var explicitly so it writes to the safe appdata folder
+            import os
+            from ...utils.appdata import get_appdata_dir
+            userdata = os.path.join(get_appdata_dir(), "WebViewUserData")
+            if not os.path.exists(userdata):
+                os.makedirs(userdata)
+            os.environ["WEBVIEW2_USER_DATA_FOLDER"] = userdata
+            logger.info(f"Set WEBVIEW2_USER_DATA_FOLDER to {userdata}")
+            
+            self.webview = wx.html2.WebView.New(self, backend=wx.html2.WebViewBackendEdge)
+            logger.info("Edge backend initialized successfully.")
+        except Exception as edge_e:
+            logger.warning(f"Edge backend failed, trying default: {edge_e}")
+            try:
+                self.webview = wx.html2.WebView.New(self)
+                logger.info("Default backend initialized.")
+            except Exception as e:
+                logger.error(f"Failed to initialize WebView: {e}")
+                self.webview = None
+                error_label = wx.StaticText(self, label="Error loading HTML viewer.")
+                sizer.Add(error_label, 1, wx.EXPAND | wx.ALL, 5)
+                return
         self.webview.Bind(wx.EVT_CHAR_HOOK, self.on_webview_key_down)
         self.webview.Bind(wx.EVT_KEY_DOWN, self.on_webview_key_down)
+        self.webview.Bind(wx.html2.EVT_WEBVIEW_NAVIGATING, self.on_webview_navigating)
         try:
             self.webview.AddScriptMessageHandler("aec")
             self.webview.Bind(wx.html2.EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, self.on_webview_script_message)
@@ -250,9 +271,27 @@ class MessageViewerPanel(wx.Panel):
 
     def on_webview_loaded(self, event):
         """Inject keyboard handler script after page loads."""
-        # Note: Disabled script injection due to persistent 'Error running JavaScript: failed to evaluate'
-        # errors on startup in compiled builds. WebView native accelerators should handle most shortcuts.
-        # If specific key handling issues arise, consider re-enabling with checking for a fully loaded DOM.
+        # Inject Escape key handler - NVDA's virtual buffer doesn't intercept Escape
+        # wxPython's AddScriptMessageHandler('aec') creates window.aec.postMessage
+        script = """
+        if (!window._aec_esc_handler) {
+            window._aec_esc_handler = true;
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    try {
+                        if (window.aec && window.aec.postMessage) {
+                            window.aec.postMessage('ESCAPE');
+                        } else if (window.chrome && window.chrome.webview) {
+                            window.chrome.webview.postMessage('ESCAPE');
+                        }
+                    } catch(ex) {}
+                }
+            }, true);
+        }
+        """
+        self._inject_script_safe(script)
         event.Skip()
     
     def _inject_script_safe(self, script):
@@ -269,7 +308,9 @@ class MessageViewerPanel(wx.Panel):
             msg = event.GetString().strip().upper()
         except Exception:
             msg = ""
-        if msg == "R":
+        if msg == "ESCAPE":
+            self.on_focus_message_list_accel(None)
+        elif msg == "R":
             self.on_reply_accel(None)
         elif msg == "A":
             self.on_reply_all_accel(None)
@@ -318,9 +359,18 @@ class MessageViewerPanel(wx.Panel):
         ]
         for keycode, handler in fixed_alt_shift:
             wx_id = wx.NewIdRef()
-            entries.append(wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_SHIFT, keycode, wx_id))
-            self.webview.Bind(wx.EVT_MENU, handler, id=wx_id)
-            self._webview_accel_ids.append(wx_id)
+            entries.append(wx.AcceleratorEntry(wx.ACCEL_NORMAL, keycode, wx_id))
+            # Alt+Shift version
+            wx_id2 = wx.NewIdRef()
+            entries.append(wx.AcceleratorEntry(wx.ACCEL_ALT | wx.ACCEL_SHIFT, keycode, wx_id2))
+            self.webview.Bind(wx.EVT_MENU, handler, id=wx_id2)
+            self._webview_accel_ids.append(wx_id2)
+
+        # Escape key: back to message list
+        esc_id = wx.NewIdRef()
+        entries.append(wx.AcceleratorEntry(wx.ACCEL_NORMAL, wx.WXK_ESCAPE, esc_id))
+        self.webview.Bind(wx.EVT_MENU, self.on_focus_message_list_accel, id=esc_id)
+        self._webview_accel_ids.append(esc_id)
 
         if entries:
             self.webview.SetAcceleratorTable(wx.AcceleratorTable(entries))
@@ -501,93 +551,99 @@ class MessageViewerPanel(wx.Panel):
         """
 
     def _wrap_plain(self, text_body: str) -> str:
-        safe = html.escape(text_body)
-        paragraphs = [f"<p>{p.replace('\\n', '<br>')}</p>" for p in safe.split("\n\n") if p.strip()]
-        content = "\n".join(paragraphs) if paragraphs else "<p>(No text content)</p>"
+        # If the supposedly plain text email is actually raw HTML sent mistakenly,
+        # don't escape it so it renders as HTML instead of speaking raw syntax.
+        lowered = text_body.lower()
+        if "<html" in lowered or "<body" in lowered or ("<a " in lowered and "</a>" in lowered) or "<img " in lowered:
+            return self._wrap_html(text_body)
+
+        import re
+        url_pattern = re.compile(r'(https?://[^\s<>]+)', re.IGNORECASE)
+
+        lines = text_body.replace('\r\n', '\n').replace('\r', '\n').split('\n')
+        html_lines = []
+        in_quote = False
+        
+        for line in lines:
+            line_stripped = line.lstrip()
+            is_quote = line_stripped.startswith('>')
+            
+            if is_quote:
+                if not in_quote:
+                    html_lines.append('<blockquote style="border-left: 2px solid #ccc; margin-left: 10px; padding-left: 10px; color: #555;">')
+                    in_quote = True
+                
+                clean_line = line_stripped.lstrip('> \t')
+                safe_line = html.escape(clean_line)
+                safe_line = url_pattern.sub(r'<a href="\1">\1</a>', safe_line)
+                html_lines.append(f"{safe_line}<br>")
+            else:
+                if in_quote:
+                    html_lines.append('</blockquote>')
+                    in_quote = False
+                
+                if not line.strip():
+                    html_lines.append('<br>')
+                else:
+                    safe_line = html.escape(line)
+                    safe_line = url_pattern.sub(r'<a href="\1">\1</a>', safe_line)
+                    html_lines.append(f"{safe_line}<br>")
+
+        if in_quote:
+            html_lines.append('</blockquote>')
+
+        content = "\n".join(html_lines) if html_lines else "<p>(No text content)</p>"
         return self._wrap_html(content)
+
+    def on_webview_navigating(self, event):
+        url = event.GetURL()
+        if not url or url.startswith("about:") or url.startswith("data:"):
+            return
+        
+        # Open in external browser
+        event.Veto()
+        try:
+            import webbrowser
+            webbrowser.open(url)
+        except Exception as e:
+            logger.error(f"Failed to externalize link {url}: {e}")
 
     def _normalize_html(self, html_body: str) -> str:
         """
         Ensure semantic structure for screen readers.
-        If content lacks headings/lists, fall back to a normalized text-based layout.
+        WebView natively handles HTML accessibility semantics, but we need to
+        hide literal '>' characters often used for quotes so NVDA doesn't speak them.
         """
         if not html_body:
             return "<p>(No content)</p>"
 
-        lowered = html_body.lower()
-        has_semantics = any(tag in lowered for tag in ["<h1", "<h2", "<h3", "<h4", "<h5", "<h6", "<ul", "<ol", "<li", "<article", "<section>"])
-        if has_semantics:
+        # Return the original HTML to allow native WebView/Screen Reader interaction,
+        # but modify literal '>' quote markers to have aria-hidden="true"
+        try:
+            import bs4
+            import re
+            soup = bs4.BeautifulSoup(html_body, 'html.parser')
+            # Find all text nodes
+            for text_node in soup.find_all(string=True):
+                # Ignore scripts or styles
+                if text_node.parent and text_node.parent.name in ['script', 'style']:
+                    continue
+                text = str(text_node)
+                if '>' in text or '&gt;' in text:
+                    # Replace leading > (with optional spaces) with an aria-hidden span
+                    new_text = re.sub(
+                        r'^\s*(?:&gt;|>)\s?', 
+                        '<span aria-hidden="true" style="color: #999;">&gt; </span>', 
+                        text, 
+                        flags=re.MULTILINE
+                    )
+                    if new_text != text:
+                        new_soup = bs4.BeautifulSoup(new_text, 'html.parser')
+                        text_node.replace_with(new_soup)
+            return str(soup)
+        except Exception as e:
+            logger.warning(f"Failed to process HTML quotes: {e}")
             return html_body
-
-        # Remove script/style blocks
-        cleaned = html_body
-        for tag in ["script", "style"]:
-            while True:
-                start = cleaned.lower().find(f"<{tag}")
-                if start == -1:
-                    break
-                end = cleaned.lower().find(f"</{tag}>", start)
-                if end == -1:
-                    cleaned = cleaned[:start]
-                    break
-                cleaned = cleaned[:start] + cleaned[end + len(tag) + 3 :]
-
-        # Convert links to text (label and URL)
-        def replace_anchor(match):
-            text = match.group(2) or ""
-            href = match.group(1) or ""
-            safe_text = html.escape(text)
-            safe_href = html.escape(href)
-            if safe_text and safe_href:
-                return f"{safe_text} ({safe_href})"
-            return safe_text or safe_href
-
-        import re
-        cleaned = re.sub(r"<a[^>]*href=[\"']([^\"']+)[\"'][^>]*>(.*?)</a>", replace_anchor, cleaned, flags=re.IGNORECASE | re.DOTALL)
-
-        # Strip remaining tags
-        cleaned = re.sub(r"<[^>]+>", "", cleaned)
-        cleaned = html.unescape(cleaned)
-
-        # Normalize whitespace
-        cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
-        lines = [line.strip() for line in cleaned.split("\n")]
-
-        # Build semantic blocks with list detection
-        blocks = []
-        current_paragraph = []
-        current_list = []
-
-        def flush_paragraph():
-            if current_paragraph:
-                text = " ".join(current_paragraph).strip()
-                if text:
-                    blocks.append(f"<p>{html.escape(text)}</p>")
-                current_paragraph.clear()
-
-        def flush_list():
-            if current_list:
-                items = "".join([f"<li>{html.escape(item)}</li>" for item in current_list])
-                blocks.append(f"<ul>{items}</ul>")
-                current_list.clear()
-
-        for line in lines:
-            if not line:
-                flush_paragraph()
-                flush_list()
-                continue
-            list_match = re.match(r"^(\*|-|\d+\\.)\\s+(.*)$", line)
-            if list_match:
-                flush_paragraph()
-                current_list.append(list_match.group(2).strip())
-            else:
-                flush_list()
-                current_paragraph.append(line)
-
-        flush_paragraph()
-        flush_list()
-
-        return "\n".join(blocks) if blocks else "<p>(No content)</p>"
 
     def _build_header_html(self) -> str:
         subject = self.current_headers.get("Subject", "") or (self.current_email or {}).get("subject", "")

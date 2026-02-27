@@ -5,6 +5,7 @@ from imapclient import IMAPClient as IMAPLib
 from ..core.account_manager import AccountManager
 from typing import List, Dict, Any, Tuple
 import email
+import email.utils
 from email.header import decode_header
 
 logger = logging.getLogger(__name__)
@@ -216,17 +217,31 @@ class IMAPClient:
             if not unique_uids:
                 return []
 
-            response = self.client.fetch(unique_uids, ['ENVELOPE', 'FLAGS', 'INTERNALDATE'])
+            response = self.client.fetch(unique_uids, ['ENVELOPE', 'FLAGS', 'INTERNALDATE', 'BODY.PEEK[HEADER.FIELDS (DATE)]'])
             email_map = {}
             for uid, data in response.items():
                 envelope = data[b'ENVELOPE']
+
+                # Parse Date header for timezone-aware datetime
+                parsed_date = None
+                for key in data.keys():
+                    if isinstance(key, bytes) and b'HEADER.FIELDS' in key:
+                        try:
+                            hdr_msg = email.message_from_bytes(data[key])
+                            date_str = hdr_msg.get('Date', '')
+                            if date_str:
+                                parsed_date = email.utils.parsedate_to_datetime(date_str)
+                        except Exception:
+                            pass
+                        break
+
                 email_map[uid] = {
                     "uid": uid,
                     "subject": self._decode_str(envelope.subject),
                     "sender": self._format_address(envelope.from_),
                     "to": self._format_address(envelope.to),
                     "cc": self._format_address(envelope.cc),
-                    "date": envelope.date,
+                    "date": parsed_date or data.get(b'INTERNALDATE') or envelope.date,
                     "flags": [f.decode() if isinstance(f, bytes) else f for f in data[b'FLAGS']],
                     "message_id": self._decode_str(envelope.message_id),
                     "in_reply_to": self._decode_str(envelope.in_reply_to),
@@ -380,7 +395,7 @@ class IMAPClient:
                 'ENVELOPE',
                 'FLAGS',
                 'INTERNALDATE',
-                'BODY.PEEK[HEADER.FIELDS (MESSAGE-ID REFERENCES IN-REPLY-TO)]'
+                'BODY.PEEK[HEADER.FIELDS (DATE MESSAGE-ID REFERENCES IN-REPLY-TO)]'
             ]
             if use_gmail_threads:
                 fetch_keys.append('X-GM-THRID')
@@ -405,6 +420,7 @@ class IMAPClient:
                 msg_id = ""
                 in_reply_to = ""
                 references = []
+                parsed_date = None
                 if header_bytes:
                     hdr_msg = email.message_from_bytes(header_bytes)
                     msg_id = (hdr_msg.get('Message-ID') or "").strip()
@@ -412,6 +428,13 @@ class IMAPClient:
                     refs = (hdr_msg.get('References') or "").strip()
                     if refs:
                         references = [r.strip() for r in refs.split() if r.strip()]
+                    # Parse Date header for timezone-aware datetime
+                    date_str = hdr_msg.get('Date', '')
+                    if date_str:
+                        try:
+                            parsed_date = email.utils.parsedate_to_datetime(date_str)
+                        except Exception:
+                            pass
 
                 # Gmail thread ID
                 gm_thrid = data.get(b'X-GM-THRID') if use_gmail_threads else None
@@ -422,7 +445,7 @@ class IMAPClient:
                     "sender": self._format_address(envelope.from_),
                     "to": self._format_address(envelope.to),
                     "cc": self._format_address(envelope.cc),
-                    "date": envelope.date or internal_date,
+                    "date": parsed_date or internal_date or envelope.date,
                     "flags": [f.decode() if isinstance(f, bytes) else f for f in flags],
                     "children": [],
                     "_msg_id": msg_id,

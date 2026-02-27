@@ -15,6 +15,8 @@ logger = logging.getLogger(__name__)
 _IST = timezone(timedelta(hours=5, minutes=30))
 
 class EmailListPanel(wx.Panel):
+    AUTO_REFRESH_INTERVAL_MS = 60000  # 60 seconds
+
     def __init__(self, parent):
         super().__init__(parent)
         self.threads = [] # Store thread root objects
@@ -25,6 +27,7 @@ class EmailListPanel(wx.Panel):
         self.repository = None
         self._load_token = 0
         self._load_progress = None
+        self._silent_refresh = False  # Suppress announcements during auto-refresh
         
         # Threading state
         self.view_mode = "threads" # "threads" or "conversation"
@@ -35,6 +38,10 @@ class EmailListPanel(wx.Panel):
         self.offset = 0
         
         self.init_ui()
+        
+        # Auto-refresh timer for applying rules on new mail
+        self._refresh_timer = wx.Timer(self)
+        self.Bind(wx.EVT_TIMER, self._on_auto_refresh, self._refresh_timer)
         
         # Subscribe to folder updates
         EventBus.subscribe(Events.FOLDER_UPDATED, self.on_folder_selected)
@@ -73,6 +80,12 @@ class EmailListPanel(wx.Panel):
         if email_account == self.current_account and folder_name == self.current_folder:
             return
 
+        # Clear the current list immediately to prevent stale/cross-account data
+        self.threads = []
+        self.current_view_emails = []
+        self.current_by_uid = {}
+        self.list.DeleteAllItems()
+
         self.current_account = email_account
         self.current_folder = folder_name
         self.view_mode = "threads"
@@ -87,26 +100,40 @@ class EmailListPanel(wx.Panel):
 
             self.load_emails()
             
+            # Restart auto-refresh timer
+            self._refresh_timer.Stop()
+            self._refresh_timer.Start(self.AUTO_REFRESH_INTERVAL_MS)
+            
         except Exception as e:
             logger.error(f"Failed to fetch emails: {e}")
             speaker.speak("Failed to load emails.")
+
+    def _on_auto_refresh(self, event):
+        """Timer callback: silently re-fetch current folder and apply rules."""
+        if not self.repository or not self.current_folder:
+            return
+        logger.info(f"Auto-refresh: re-fetching {self.current_folder}")
+        self._silent_refresh = True
+        self.load_emails()
 
     def load_emails(self):
         if not self.repository: return
         self._load_token += 1
         token = self._load_token
 
-        # Load cached threads immediately for responsiveness
-        cached = []
-        try:
-            cached = self.repository.get_cached_threads(self.current_folder, limit=self.limit, offset=self.offset)
-        except Exception as e:
-            logger.warning(f"Failed to load cached threads: {e}")
-        if cached:
-            self.threads = cached
-            self.current_view_emails = self.threads
-            self.refresh_list()
-            speaker.speak("Loaded cached emails. Updating from server...")
+        # Only show cached/progress for non-silent refreshes
+        if not self._silent_refresh:
+            # Load cached threads immediately for responsiveness
+            cached = []
+            try:
+                cached = self.repository.get_cached_threads(self.current_folder, limit=self.limit, offset=self.offset)
+            except Exception as e:
+                logger.warning(f"Failed to load cached threads: {e}")
+            if cached:
+                self.threads = cached
+                self.current_view_emails = self.threads
+                self.refresh_list()
+                speaker.speak("Loaded cached emails. Updating from server...")
 
         if self._load_progress:
             try:
@@ -115,8 +142,9 @@ class EmailListPanel(wx.Panel):
                 pass
             self._load_progress = None
 
-        self._load_progress = AudibleProgress("Loading emails, please wait", interval=6)
-        self._load_progress.start()
+        if not self._silent_refresh:
+            self._load_progress = AudibleProgress("Loading emails, please wait", interval=6)
+            self._load_progress.start()
 
         import threading
         threading.Thread(target=self._load_emails_worker, args=(token,), daemon=True).start()
@@ -222,6 +250,9 @@ class EmailListPanel(wx.Panel):
         if token != self._load_token:
             return
 
+        was_silent = self._silent_refresh
+        self._silent_refresh = False
+
         if self._load_progress:
             try:
                 self._load_progress.stop()
@@ -231,7 +262,8 @@ class EmailListPanel(wx.Panel):
 
         if error:
             logger.error(f"Failed to fetch emails: {error}")
-            speaker.speak("Failed to load emails.")
+            if not was_silent:
+                speaker.speak("Failed to load emails.")
             return
 
         if moved_count > 0:
@@ -241,13 +273,13 @@ class EmailListPanel(wx.Panel):
         self.current_view_emails = self.threads # Initially show thread roots
         self.refresh_list()
         
-        count = len(self.threads)
-        if count > 0:
-            msg = f"Loaded {count} conversations. Page {self.offset // self.limit + 1}."
-        else:
-            msg = "No emails found."
-            
-        speaker.speak(msg)
+        if not was_silent:
+            count = len(self.threads)
+            if count > 0:
+                msg = f"Loaded {count} conversations. Page {self.offset // self.limit + 1}."
+            else:
+                msg = "No emails found."
+            speaker.speak(msg)
         
     def on_next_page(self):
         if not self.current_folder: return

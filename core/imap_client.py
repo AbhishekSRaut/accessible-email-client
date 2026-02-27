@@ -1,5 +1,6 @@
 
 import logging
+import threading
 from imapclient import IMAPClient as IMAPLib
 from ..core.account_manager import AccountManager
 from typing import List, Dict, Any, Tuple
@@ -8,11 +9,17 @@ from email.header import decode_header
 
 logger = logging.getLogger(__name__)
 
+import re
+
 class IMAPClient:
     def __init__(self, account_email: str):
         self.email = account_email
         self.account_manager = AccountManager()
         self.client = None
+        self.imap_host = ""
+        self._lock = threading.Lock()
+        self._selected_folder = None
+        self._selected_readonly = None
         self._connect()
 
     def _connect(self):
@@ -32,6 +39,7 @@ class IMAPClient:
                 logger.error(f"No password found for {self.email}")
                 return
 
+            self.imap_host = account['imap_host']
             self.client = IMAPLib(account['imap_host'], port=account['imap_port'], ssl=True)
             self.client.login(self.email, password)
             logger.info(f"Logged in to {self.email}")
@@ -66,13 +74,22 @@ class IMAPClient:
 
     def select_folder(self, folder_name: str, readonly: bool = False):
         """
-        Select a folder.
+        Select a folder. Tracks current selection to avoid redundant selects.
+        The caller MUST hold self._lock when calling this method.
         """
         if not self.client:
             return
         try:
+            # Skip re-select if already on the same folder with same mode
+            if self._selected_folder == folder_name and self._selected_readonly == readonly:
+                return
             self.client.select_folder(folder_name, readonly=readonly)
+            self._selected_folder = folder_name
+            self._selected_readonly = readonly
+            logger.debug(f"Selected folder '{folder_name}' (readonly={readonly})")
         except Exception as e:
+            self._selected_folder = None
+            self._selected_readonly = None
             logger.error(f"Error selecting folder {folder_name}: {e}")
 
     def create_folder(self, folder_name: str) -> bool:
@@ -164,7 +181,8 @@ class IMAPClient:
         if not self.client:
             return []
 
-        try:
+        with self._lock:
+          try:
             self.select_folder(folder_name, readonly=True)
             
             # Fetch threaded UIDs
@@ -220,54 +238,128 @@ class IMAPClient:
             result = []
             
             def build_thread_node(node):
-                # Handle recursive THREAD tuples: (uid, child1, child2, ...)
+                # Handle THREAD tuples: (uid1, uid2, uid3, ...) means uid1→uid2→uid3 chain
+                # Also handles nested: (uid1, (uid2, uid3)) 
                 
                 if isinstance(node, (list, tuple)):
                     if not node: return None
                     
-                    root_uid = node[0]
-                    children_nodes = node[1:] if len(node) > 1 else []
+                    # Collect all items: ints are UIDs, tuples are sub-threads
+                    items = list(node)
                     
-                    email_obj = None
-                    if isinstance(root_uid, int):
-                        email_obj = email_map.get(root_uid)
+                    # Build a chain: first int UID is root, subsequent ints are chained children
+                    root_obj = None
+                    current_parent = None
                     
-                    children_objs = []
-                    for child_node in children_nodes:
-                        child_obj = build_thread_node(child_node)
-                        if child_obj:
-                            children_objs.append(child_obj)
-                            
-                    if email_obj:
-                        email_obj['children'] = children_objs
-                        return email_obj
-                    else:
-                        return None
+                    for item in items:
+                        if isinstance(item, int):
+                            obj = email_map.get(item)
+                            if obj:
+                                obj['children'] = []
+                                if root_obj is None:
+                                    root_obj = obj
+                                    current_parent = obj
+                                else:
+                                    current_parent['children'].append(obj)
+                                    current_parent = obj
+                        elif isinstance(item, (list, tuple)):
+                            # Nested sub-thread
+                            child_obj = build_thread_node(item)
+                            if child_obj and current_parent:
+                                current_parent['children'].append(child_obj)
+                            elif child_obj:
+                                root_obj = child_obj
+                                current_parent = child_obj
+                    
+                    return root_obj
                 else:
-                    # Just a UID?
-                    return email_map.get(node)
+                    # Just a UID
+                    obj = email_map.get(node)
+                    if obj:
+                        obj['children'] = []
+                    return obj
 
-            # Process top-level threads
-            # Reverse to show newest threads first.
+            # Process ALL top-level threads first (no slicing yet)
             threads_list = list(threads)
-            threads_list.reverse()
             
-            sliced = threads_list[offset:offset+limit]
-            
-            for thread_node in sliced:
+            for thread_node in threads_list:
                 thread_obj = build_thread_node(thread_node)
                 if thread_obj:
                     result.append(thread_obj)
             
-            return result
-        except Exception as e:
+            # Merge orphan roots by subject across ALL threads
+            result = self._merge_by_subject(result)
+
+            # NOW paginate on the merged thread list
+            return result[offset:offset+limit]
+          except Exception as e:
             logger.error(f"Error fetching threads from {folder_name}: {e}")
             return []
 
+    @staticmethod
+    def _normalize_subject(subject: str) -> str:
+        """Strip Re:/Fwd:/FW: prefixes and whitespace for subject-based grouping."""
+        if not subject:
+            return ""
+        # Repeatedly strip common prefixes
+        s = subject.strip()
+        pattern = re.compile(r'^\s*(re|fwd|fw)\s*:\s*', re.IGNORECASE)
+        while pattern.match(s):
+            s = pattern.sub('', s, count=1).strip()
+        return s.lower()
+
+    @classmethod
+    def _merge_by_subject(cls, roots: List[Dict]) -> List[Dict]:
+        """
+        Post-process thread roots: merge single-item roots with matching
+        normalized subjects into a single thread (oldest as root).
+        This catches mailing-list threads that the server didn't group.
+        """
+        subject_groups = {}  # normalized_subject -> [root_obj, ...]
+        final_roots = []
+
+        for root_obj in roots:
+            norm_subj = cls._normalize_subject(root_obj.get("subject", ""))
+            if norm_subj and len(norm_subj) > 3:  # Ignore very short subjects
+                subject_groups.setdefault(norm_subj, []).append(root_obj)
+            else:
+                final_roots.append(root_obj)
+
+        for norm_subj, group in subject_groups.items():
+            if len(group) == 1:
+                final_roots.append(group[0])
+            else:
+                # Multiple messages — group under the oldest as root
+                group.sort(key=lambda x: x.get("date") or 0)
+                thread_root = group[0]
+                for sibling in group[1:]:
+                    # Move sibling's existing children to root if any
+                    thread_root["children"].extend(sibling.get("children", []))
+                    sibling["children"] = []
+                    thread_root["children"].append(sibling)
+                final_roots.append(thread_root)
+
+        # Sort by newest date in thread
+        def thread_newest_date(root):
+            dates = [root.get("date") or 0]
+            for c in root.get("children", []):
+                dates.append(c.get("date") or 0)
+            return max(dates)
+
+        final_roots.sort(key=thread_newest_date, reverse=True)
+        return final_roots
+
+    def _is_gmail(self) -> bool:
+        """Check if the connected server is Gmail."""
+        return 'gmail' in self.imap_host.lower() or 'google' in self.imap_host.lower()
+
     def _fetch_threads_fallback(self, folder_name: str, limit: int = 100, offset: int = 0) -> List[Dict]:
         """
-        Fallback threading using Message-ID and References headers within the current page.
-        This preserves basic thread structure even when THREAD is unsupported.
+        Fallback threading using three tiers:
+        1. Gmail X-GM-THRID (native thread ID) when available
+        2. In-Reply-To / References header linking
+        3. Subject-based grouping for remaining orphans
+        NOTE: Caller (fetch_threads) already holds self._lock.
         """
         if not self.client:
             self._connect()
@@ -279,19 +371,22 @@ class IMAPClient:
             messages = self.client.search(['ALL'])
             messages.sort(reverse=True)
 
-            start = offset
-            end = offset + limit
-            batch_uids = messages[start:end]
-            if not batch_uids:
+            if not messages:
                 return []
 
+            # Determine fetch keys based on server capabilities
+            use_gmail_threads = self._is_gmail()
             fetch_keys = [
                 'ENVELOPE',
                 'FLAGS',
                 'INTERNALDATE',
                 'BODY.PEEK[HEADER.FIELDS (MESSAGE-ID REFERENCES IN-REPLY-TO)]'
             ]
-            response = self.client.fetch(batch_uids, fetch_keys)
+            if use_gmail_threads:
+                fetch_keys.append('X-GM-THRID')
+
+            # Fetch ALL emails for cross-page threading
+            response = self.client.fetch(messages, fetch_keys)
 
             email_map = {}
             msgid_to_uid = {}
@@ -318,6 +413,9 @@ class IMAPClient:
                     if refs:
                         references = [r.strip() for r in refs.split() if r.strip()]
 
+                # Gmail thread ID
+                gm_thrid = data.get(b'X-GM-THRID') if use_gmail_threads else None
+
                 email_map[uid] = {
                     "uid": uid,
                     "subject": self._decode_str(envelope.subject),
@@ -329,37 +427,95 @@ class IMAPClient:
                     "children": [],
                     "_msg_id": msg_id,
                     "_in_reply_to": in_reply_to,
-                    "_references": references
+                    "_references": references,
+                    "_gm_thrid": gm_thrid
                 }
 
                 if msg_id:
                     msgid_to_uid[msg_id] = uid
 
-            # Build parent-child links
+            # === TIER 1: Gmail X-GM-THRID grouping ===
+            if use_gmail_threads:
+                thrid_groups = {}  # thrid -> [uid, uid, ...]
+                for uid, obj in email_map.items():
+                    thrid = obj.get("_gm_thrid")
+                    if thrid:
+                        thrid_groups.setdefault(thrid, []).append(uid)
+
+                roots = []
+                used_uids = set()
+
+                for thrid, uids in thrid_groups.items():
+                    # Sort by date ascending so oldest is root
+                    uids.sort(key=lambda u: email_map[u].get("date") or 0)
+                    root_uid = uids[0]
+                    root_obj = email_map[root_uid]
+                    root_obj["children"] = []
+                    for child_uid in uids[1:]:
+                        child_obj = email_map[child_uid]
+                        child_obj["children"] = []
+                        root_obj["children"].append(child_obj)
+                    roots.append(root_obj)
+                    used_uids.update(uids)
+
+                # Add any emails without X-GM-THRID as standalone roots
+                for uid, obj in email_map.items():
+                    if uid not in used_uids:
+                        obj["children"] = []
+                        roots.append(obj)
+
+                # Sort roots by newest message date (considering children)
+                def thread_newest_date(root):
+                    dates = [root.get("date") or 0]
+                    for c in root.get("children", []):
+                        dates.append(c.get("date") or 0)
+                    return max(dates)
+
+                roots.sort(key=thread_newest_date, reverse=True)
+
+                # Clean internal fields
+                for obj in email_map.values():
+                    obj.pop("_msg_id", None)
+                    obj.pop("_in_reply_to", None)
+                    obj.pop("_references", None)
+                    obj.pop("_gm_thrid", None)
+
+                # Post-process: merge orphan roots by subject, then paginate
+                merged = self._merge_by_subject(roots)
+                return merged[offset:offset+limit]
+
+            # === TIER 2: In-Reply-To / References header linking ===
+            linked_uids = set()  # UIDs that got linked as children
             roots = []
             for uid, email_obj in email_map.items():
                 parent_msgid = ""
                 if email_obj["_references"]:
-                    parent_msgid = email_obj["_references"][-1]
-                elif email_obj["_in_reply_to"]:
+                    # Try all references, not just the last one
+                    for ref in reversed(email_obj["_references"]):
+                        if ref in msgid_to_uid and msgid_to_uid[ref] != uid:
+                            parent_msgid = ref
+                            break
+                if not parent_msgid and email_obj["_in_reply_to"]:
                     parent_msgid = email_obj["_in_reply_to"]
 
                 parent_uid = msgid_to_uid.get(parent_msgid)
                 if parent_uid and parent_uid in email_map and parent_uid != uid:
                     email_map[parent_uid]["children"].append(email_obj)
+                    linked_uids.add(uid)
                 else:
                     roots.append(email_obj)
 
-            # Sort roots by date (newest first)
-            roots.sort(key=lambda x: x.get("date") or 0, reverse=True)
+            # === TIER 3: Subject-based grouping for remaining orphan roots ===
+            final_roots = self._merge_by_subject(roots)
 
             # Remove internal fields before returning
             for email_obj in email_map.values():
                 email_obj.pop("_msg_id", None)
                 email_obj.pop("_in_reply_to", None)
                 email_obj.pop("_references", None)
+                email_obj.pop("_gm_thrid", None)
 
-            return roots
+            return final_roots[offset:offset+limit]
         except Exception as e:
             logger.error(f"Fallback threading error for {folder_name}: {e}")
             return self.fetch_emails(folder_name, limit, offset)
@@ -367,6 +523,7 @@ class IMAPClient:
     def fetch_email_body(self, folder_name: str, uid: int) -> Dict[str, Any]:
         """
         Fetch the body of a specific email.
+        Uses lock to prevent concurrent folder re-selection.
         """
         if not self.client:
             self._connect()
@@ -374,10 +531,22 @@ class IMAPClient:
         if not self.client:
             return {}
 
-        try:
+        with self._lock:
+          try:
             self.select_folder(folder_name, readonly=True)
+            logger.debug(f"Fetching body for UID {uid} in folder '{folder_name}'")
             response = self.client.fetch([uid], ['BODY.PEEK[]'])
-            raw_email = response[uid][b'BODY[]']
+            
+            if uid not in response:
+                logger.warning(f"UID {uid} not found in folder '{folder_name}' response")
+                return {}
+            
+            raw_data = response[uid]
+            if b'BODY[]' not in raw_data:
+                logger.warning(f"No BODY[] data for UID {uid} in folder '{folder_name}'")
+                return {}
+            
+            raw_email = raw_data[b'BODY[]']
             
             msg = email.message_from_bytes(raw_email)
             body_text = ""
@@ -429,8 +598,8 @@ class IMAPClient:
                 "attachments": attachments
             }
 
-        except Exception as e:
-            logger.error(f"Error fetching body for UID {uid}: {e}")
+          except Exception as e:
+            logger.error(f"Error fetching body for UID {uid} in folder '{folder_name}': {e}")
             return {}
 
     def _decode_str(self, header_val):
@@ -475,12 +644,14 @@ class IMAPClient:
         if not self.client:
             return False
 
-        try:
+        with self._lock:
+          try:
             # imapclient's move method handles copy + delete + expunge usually, 
             # or uses MOVE extension if available.
+            self._selected_folder = None  # folder state changes after move
             self.client.move(uids, target_folder)
             return True
-        except Exception as e:
+          except Exception as e:
             logger.error(f"Error moving emails to {target_folder}: {e}")
             return False
 
@@ -493,10 +664,11 @@ class IMAPClient:
         if not self.client:
             return False
 
-        try:
+        with self._lock:
+          try:
             self.client.copy(uids, target_folder)
             return True
-        except Exception as e:
+          except Exception as e:
             logger.error(f"Error copying emails to {target_folder}: {e}")
             return False
 
@@ -509,10 +681,11 @@ class IMAPClient:
         if not self.client:
             return False
             
-        try:
+        with self._lock:
+          try:
             self.client.add_flags(uids, flags)
             return True
-        except Exception as e:
+          except Exception as e:
             logger.error(f"Error adding flags {flags}: {e}")
             return False
 
@@ -525,10 +698,11 @@ class IMAPClient:
         if not self.client:
             return False
             
-        try:
+        with self._lock:
+          try:
             self.client.remove_flags(uids, flags)
             return True
-        except Exception as e:
+          except Exception as e:
             logger.error(f"Error removing flags {flags}: {e}")
             return False
 

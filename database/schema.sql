@@ -57,5 +57,7 @@ CREATE TABLE IF NOT EXISTS rules (
     name TEXT NOT NULL,
     condition_json TEXT NOT NULL, -- e.g., {"sender": "foo@bar.com"}
     action_json TEXT NOT NULL, -- e.g., {"move_to": "Family"}
-    is_active BOOLEAN DEFAULT 1
+    account_id INTEGER, -- NULL means global (legacy), otherwise scoped to account
+    is_active BOOLEAN DEFAULT 1,
+    FOREIGN KEY(account_id) REFERENCES accounts(id) ON DELETE CASCADE
 );

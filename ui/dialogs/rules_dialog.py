@@ -8,10 +8,16 @@ from ...utils.accessible_widgets import AccessibleTextCtrl, AccessibleButton, Ac
 logger = logging.getLogger(__name__)
 
 class RulesDialog(wx.Dialog):
-    def __init__(self, parent, folders=None):
+    def __init__(self, parent, folders=None, account_email=None):
         super().__init__(parent, title="Manage Rules", size=(600, 500))
         self.rule_manager = RuleManager()
         self.folders = folders or []
+        self.account_email = account_email
+        # Resolve account_id for scoping rules
+        self.account_id = None
+        if account_email:
+            from ...database.db_manager import db_manager
+            self.account_id = db_manager.get_account_id(account_email)
         self.init_ui()
         self.load_rules()
         self.Center()
@@ -112,7 +118,7 @@ class RulesDialog(wx.Dialog):
         self.params_map = {} # index -> rule_id
         self.rules_map = {} # index -> rule object
         
-        rules = self.rule_manager.get_rules()
+        rules = self.rule_manager.get_rules(account_id=self.account_id)
         for idx, rule in enumerate(rules):
             name = rule['name']
             cond = rule['conditions']
@@ -159,7 +165,7 @@ class RulesDialog(wx.Dialog):
         actions = {"move_to": target_folder, "exclusive": self.exclusive_move.GetValue()}
         
         if self.editing_rule_id:
-            success = self.rule_manager.update_rule(self.editing_rule_id, name, conditions, actions)
+            success = self.rule_manager.update_rule(self.editing_rule_id, name, conditions, actions, account_id=self.account_id)
             if success:
                 speaker.speak("Rule updated")
                 self.name_input.Clear()
@@ -169,7 +175,7 @@ class RulesDialog(wx.Dialog):
                 speaker.speak("Failed to update rule")
                 wx.MessageBox("Failed to update rule", "Error", wx.OK | wx.ICON_ERROR)
         else:
-            if self.rule_manager.add_rule(name, conditions, actions):
+            if self.rule_manager.add_rule(name, conditions, actions, account_id=self.account_id):
                 speaker.speak("Rule added")
                 self.name_input.Clear()
                 self.cond_value.Clear()

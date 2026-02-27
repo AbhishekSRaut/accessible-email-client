@@ -3,7 +3,7 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Accessible Email Client – User Guide (v1.1)</title>
+  <title>Accessible Email Client – User Guide (v1.2)</title>
   <style>
     body {
       font-family: "Segoe UI", Tahoma, Arial, sans-serif;
@@ -41,10 +41,19 @@
       padding: 10px 12px;
       margin: 10px 0;
     }
+    .new-badge {
+      background: #10b981;
+      color: white;
+      font-size: 0.75em;
+      padding: 2px 6px;
+      border-radius: 3px;
+      margin-left: 6px;
+      vertical-align: middle;
+    }
   </style>
 </head>
 <body>
-  <h1>Accessible Email Client – User Guide (v1.1)</h1>
+  <h1>Accessible Email Client – User Guide (v1.2)</h1>
 
   <p>
     A keyboard‑first, screen‑reader‑friendly desktop email client built with wxPython.
@@ -72,6 +81,9 @@
     <li>Keyboard shortcuts editor.</li>
     <li>Signature support (global or per account).</li>
     <li>Audible progress for long operations.</li>
+    <li>Smart folder rules with per‑account scoping. <span class="new-badge">NEW</span></li>
+    <li>System tray with background email polling. <span class="new-badge">NEW</span></li>
+    <li>Single‑instance guard — re‑launching restores the existing window. <span class="new-badge">NEW</span></li>
   </ul>
 
   <h2>Accessibility Highlights</h2>
@@ -80,6 +92,7 @@
     <li>Screen‑reader announcements for major actions and status.</li>
     <li>Keyboard navigation for all dialogs and lists.</li>
     <li>Dialogs support <kbd>Esc</kbd> to cancel/close.</li>
+    <li><kbd>Escape</kbd> returns focus from the message viewer back to the email list.</li>
   </ul>
 
   <h2>App‑Specific Passwords</h2>
@@ -94,18 +107,19 @@
   </div>
   <p>General steps (provider UI may differ):</p>
   <ol>
-    <li>Sign in to your email provider’s account settings.</li>
+    <li>Sign in to your email provider's account settings.</li>
     <li>Enable 2‑Step Verification (if not already enabled).</li>
-    <li>Find “App Passwords” or “App‑Specific Passwords”.</li>
-    <li>Create a new app password (choose “Mail” or “Other”).</li>
-    <li>Copy the generated password and paste it into the app’s <strong>App Password</strong> field.</li>
+    <li>Find "App Passwords" or "App‑Specific Passwords".</li>
+    <li>Create a new app password (choose "Mail" or "Other").</li>
+    <li>Copy the generated password and paste it into the app's <strong>App Password</strong> field.</li>
   </ol>
   <div class="warning">
     Do not use your normal account password in this app.
   </div>
 
   <h2>Adding an Account</h2>
-  <p>When adding an account, you’ll see these fields:</p>
+  <p>Menu: <strong>Account</strong> → <strong>Add Account</strong> (or press <kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd>).</p>
+  <p>When adding an account, you'll see these fields:</p>
   <ul>
     <li><strong>Email Address:</strong> Your full email address (e.g., user@example.com).</li>
     <li><strong>App Password:</strong> The app‑specific password from your provider.</li>
@@ -123,6 +137,34 @@
     </ul>
   </div>
 
+  <h2>Smart Folder Rules <span class="new-badge">Updated</span></h2>
+  <p>Menu: <strong>Folder</strong> → <strong>Manage Rules</strong>.</p>
+  <p>Rules are <strong>per‑account</strong> — a rule created under one account only applies to that account's emails.</p>
+  <ul>
+    <li><strong>Conditions:</strong> Match by sender, subject, or recipient (supports comma‑separated values for multiple matches).</li>
+    <li><strong>Actions:</strong> Move to a target folder, or copy (keep in Inbox).</li>
+    <li><strong>Inbox Behavior:</strong> Choose "Move only" to remove from Inbox, or uncheck to copy and keep in both locations.</li>
+  </ul>
+  <div class="note">
+    Rules are applied automatically when loading emails. If a target folder doesn't exist, it will be created automatically.
+  </div>
+
+  <h2>System Tray &amp; Background Notifications <span class="new-badge">NEW</span></h2>
+  <ul>
+    <li>Closing the window (<kbd>Alt</kbd> + <kbd>F4</kbd>) minimizes to the system tray instead of exiting.</li>
+    <li>Email polling continues in the background (every 60 seconds).</li>
+    <li>Toast notifications appear for new emails.</li>
+    <li>Right‑click the tray icon to open the app or exit completely.</li>
+    <li>Use <kbd>Ctrl</kbd> + <kbd>Q</kbd> or tray <strong>Exit</strong> to fully quit.</li>
+  </ul>
+
+  <h2>Single Instance <span class="new-badge">NEW</span></h2>
+  <p>
+    Only one instance of the application runs at a time. If you launch the app while it is already running
+    (including in the system tray), the existing window will be restored and brought to focus instead of
+    starting a new copy.
+  </p>
+
   <h2>Settings</h2>
   <p>Open <strong>Settings</strong> from the menu.</p>
 
@@ -133,13 +175,13 @@
 
   <h3>Notifications</h3>
   <ul>
-    <li><strong>Silent mode (no sound)</strong> — Disables notification sounds.</li>
+    <li><strong>Silent mode (no sound)</strong> — Disables notification sounds. Toggle with <kbd>Ctrl</kbd> + <kbd>S</kbd>.</li>
     <li><strong>Notification Sounds...</strong> — Configure sound rules by scope (global/account), type (default/folder/sender), and sound.</li>
   </ul>
 
   <h3>Keyboard</h3>
   <ul>
-    <li><strong>Keyboard Shortcuts...</strong> — View and customize shortcuts. Alphanumeric shortcuts require Ctrl or Alt.</li>
+    <li><strong>Keyboard Shortcuts...</strong> — View and customize shortcuts (<kbd>Ctrl</kbd> + <kbd>K</kbd>). Alphanumeric shortcuts require Ctrl or Alt.</li>
   </ul>
 
   <h3>Signatures</h3>
@@ -149,8 +191,10 @@
 
   <h2>Help Menu</h2>
   <ul>
+    <li><strong>About</strong> — Shows version and application information.</li>
     <li><strong>Contact Developer (Email)</strong> — Opens a compose dialog addressed to <code>raut.abhishek@zohomail.in</code>.</li>
     <li><strong>Open Developer GitHub</strong> — Opens the developer profile in your browser.</li>
+    <li><strong>Open User Guide</strong> — Opens this documentation in your browser.</li>
   </ul>
 
   <h2>Basic Keyboard Shortcuts</h2>
@@ -160,7 +204,7 @@
     <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>R</kbd> — Reply</li>
     <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> — Reply All</li>
     <li><kbd>Alt</kbd> + <kbd>Shift</kbd> + <kbd>F</kbd> — Forward</li>
-    <li><kbd>Ctrl</kbd> + <kbd>Q</kbd> — Exit</li>
+    <li><kbd>Ctrl</kbd> + <kbd>Q</kbd> — Exit (fully quit)</li>
     <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>A</kbd> — Add Account</li>
     <li><kbd>Ctrl</kbd> + <kbd>Shift</kbd> + <kbd>N</kbd> — Create Folder</li>
     <li><kbd>Ctrl</kbd> + <kbd>S</kbd> — Toggle Silent Mode</li>
@@ -185,12 +229,13 @@
   <ul>
     <li><kbd>Tab</kbd> — Move to commands/actions</li>
     <li><kbd>Shift</kbd> + <kbd>Tab</kbd> — Return to message list</li>
+    <li><kbd>Escape</kbd> — Return focus from message body to email list</li>
     <li>Use the <strong>Back to Message List</strong> button if keyboard focus is inside the message body.</li>
   </ul>
 
   <h2>Notes on Shortcuts and Screen Readers</h2>
   <ul>
-    <li>Some screen reader modes intercept keys inside the message body. If a shortcut doesn’t fire, switch to focus mode or use the on‑screen buttons.</li>
+    <li>Some screen reader modes intercept keys inside the message body. If a shortcut doesn't fire, switch to focus mode or use the on‑screen buttons.</li>
     <li>The app registers system‑level hotkeys for key actions while reading. They only execute when the app is active.</li>
   </ul>
 
@@ -198,6 +243,8 @@
   <ul>
     <li>If a folder appears empty briefly, cached emails load first and then the list updates from the server.</li>
     <li>If a message shows as unread after opening, it will update after the read flag is synced.</li>
+    <li>If the app seems not to start, check if it is already running in the system tray. Right‑click the tray icon and choose "Open".</li>
+    <li>If rules from one account appear to affect another, open Manage Rules and re‑create the rule — legacy rules (created before the per‑account update) may apply globally.</li>
   </ul>
 </body>
 </html>

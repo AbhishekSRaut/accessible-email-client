@@ -1,6 +1,7 @@
 
 import wx
 import logging
+from datetime import datetime, timezone, timedelta
 from ...utils.accessibility import speaker
 from ...utils.accessible_widgets import AccessibleListCtrl
 from ...utils.progress import AudibleProgress
@@ -9,6 +10,9 @@ from ...core.email_repository import EmailRepository
 from ...core.shortcut_manager import shortcut_manager
 
 logger = logging.getLogger(__name__)
+
+# IST timezone offset
+_IST = timezone(timedelta(hours=5, minutes=30))
 
 class EmailListPanel(wx.Panel):
     def __init__(self, parent):
@@ -65,6 +69,10 @@ class EmailListPanel(wx.Panel):
         if not email_account or not folder_name:
             return
 
+        # Skip if same folder+account already selected (prevents re-announce on repeated selection)
+        if email_account == self.current_account and folder_name == self.current_folder:
+            return
+
         self.current_account = email_account
         self.current_folder = folder_name
         self.view_mode = "threads"
@@ -114,6 +122,12 @@ class EmailListPanel(wx.Panel):
         threading.Thread(target=self._load_emails_worker, args=(token,), daemon=True).start()
 
     def _load_emails_worker(self, token: int):
+        # Snapshot context to prevent stale reads if user switches folders mid-load
+        repository = self.repository
+        current_folder = self.current_folder
+        current_account = self.current_account
+        account_id = repository.account_id if repository else None
+
         error = None
         raw_threads = []
         moved_count = 0
@@ -122,7 +136,7 @@ class EmailListPanel(wx.Panel):
             from ...core.rule_manager import RuleManager
             rule_manager = RuleManager()
 
-            raw_threads = self.repository.fetch_threads(self.current_folder, limit=self.limit, offset=self.offset)
+            raw_threads = repository.fetch_threads(current_folder, limit=self.limit, offset=self.offset)
 
             # Apply rules in a loop: after moving emails, new ones may scroll into view
             max_passes = 10  # safety limit
@@ -130,12 +144,12 @@ class EmailListPanel(wx.Panel):
                 emails_to_move = [] # list of (uid, target_folder, email_obj, exclusive)
 
                 def check_and_mark(email_obj):
-                    action = rule_manager.apply_rules(email_obj)
+                    action = rule_manager.apply_rules(email_obj, account_id=account_id)
                     if action and "move_to" in action:
                         target = action["move_to"]
                         if rule_pass == 0:  # only print on first pass to avoid spam
                             print(f"[RULE MATCH] uid={email_obj.get('uid')} sender='{email_obj.get('sender', '')[:40]}' to='{email_obj.get('to', '')}' -> move to '{target}'")
-                        if target and self.current_folder and target.lower() != self.current_folder.lower():
+                        if target and current_folder and target.lower() != current_folder.lower():
                             exclusive = bool(action.get("exclusive", True))
                             return (email_obj["uid"], target, email_obj, exclusive)
                     return None
@@ -166,23 +180,25 @@ class EmailListPanel(wx.Panel):
                 for target, items in moves_by_folder.items():
                     # Auto-create target folder if it doesn't exist
                     try:
-                        self.repository.imap_client.create_folder(target)
+                        repository.imap_client.create_folder(target)
                     except:
                         pass  # folder may already exist
                     
                     # Re-select source folder in read-write mode (fetch_threads opened readonly)
-                    self.repository.imap_client.select_folder(self.current_folder, readonly=False)
+                    # Use lock to prevent interference with concurrent operations
+                    with repository.imap_client._lock:
+                        repository.imap_client.select_folder(current_folder, readonly=False)
                     
                     move_uids = [uid for uid, exclusive in items if exclusive]
                     copy_uids = [uid for uid, exclusive in items if not exclusive]
                     if move_uids:
                         print(f"[RULE MOVE] Pass {rule_pass+1}: Moving {len(move_uids)} emails to '{target}'")
-                        if self.repository.move_emails(move_uids, target):
+                        if repository.move_emails(move_uids, target):
                             batch_moved += len(move_uids)
                             moved_count += len(move_uids)
                         else:
                             print(f"[RULE MOVE] FAILED to move emails to '{target}'")
-                    if copy_uids and self.repository.copy_emails(copy_uids, target):
+                    if copy_uids and repository.copy_emails(copy_uids, target):
                         batch_moved += len(copy_uids)
                         moved_count += len(copy_uids)
 
@@ -190,12 +206,12 @@ class EmailListPanel(wx.Panel):
                     break  # Moves failed, don't loop forever
                     
                 # Re-fetch to get newly visible emails and apply rules again
-                raw_threads = self.repository.fetch_threads(self.current_folder, limit=self.limit, offset=self.offset)
+                raw_threads = repository.fetch_threads(current_folder, limit=self.limit, offset=self.offset)
 
             if moved_count > 0:
                 print(f"[RULES] Total moved: {moved_count} emails")
                 # Final fetch for display
-                raw_threads = self.repository.fetch_threads(self.current_folder, limit=self.limit, offset=self.offset)
+                raw_threads = repository.fetch_threads(current_folder, limit=self.limit, offset=self.offset)
 
         except Exception as e:
             error = e
@@ -252,16 +268,58 @@ class EmailListPanel(wx.Panel):
         speaker.speak("Loading previous page...")
         self.load_emails()
 
+    @staticmethod
+    def _extract_sender_name(sender: str) -> str:
+        """Extract display name from sender, stripping email address."""
+        if not sender:
+            return "Unknown"
+        # Handle format: "Name <email@example.com>" or just "email@example.com"
+        if '<' in sender:
+            name = sender.split('<')[0].strip().strip('"').strip("'")
+            if name:
+                return name
+        # Just an email address, return the part before @
+        if '@' in sender:
+            return sender.split('@')[0]
+        return sender
+
+    @staticmethod
+    def _format_date_ist(date_val) -> str:
+        """Convert any date value to IST and format as readable string."""
+        if not date_val:
+            return ""
+        try:
+            if isinstance(date_val, datetime):
+                dt = date_val
+            elif isinstance(date_val, str):
+                # Try parsing common email date formats
+                from email.utils import parsedate_to_datetime
+                try:
+                    dt = parsedate_to_datetime(date_val)
+                except Exception:
+                    return date_val  # Can't parse, return as-is
+            else:
+                return str(date_val)
+
+            # Convert to IST
+            if dt.tzinfo is None:
+                # Assume UTC if no timezone info
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_ist = dt.astimezone(_IST)
+            return dt_ist.strftime("%d %b %Y, %H:%M")
+        except Exception:
+            return str(date_val)
+
     def refresh_list(self):
         self.list.DeleteAllItems()
         self.current_by_uid = {}
         for idx, email in enumerate(self.current_view_emails):
-            sender = email.get("sender", "Unknown")
+            sender = self._extract_sender_name(email.get("sender", "Unknown"))
             subject = email.get("subject", "No Subject")
-            date = str(email.get("date", ""))
+            date = self._format_date_ist(email.get("date", ""))
             flags = email.get("flags", [])
             is_read = "\\Seen" in flags
-            status = "Read" if is_read else "Unread"
+            status = "" if is_read else "Unread"
             uid = email.get("uid")
             
             # Add visual indicator for threads
@@ -294,16 +352,19 @@ class EmailListPanel(wx.Panel):
             children = email.get("children", [])
             is_thread = self.view_mode == "threads" and children
             
+            sender = self._extract_sender_name(email.get('sender', 'Unknown'))
             subject = email.get('subject', 'No Subject')
+            date = self._format_date_ist(email.get('date', ''))
             flags = email.get("flags", [])
             is_read = "\\Seen" in flags
-            status = "Read" if is_read else "Unread"
+            status_prefix = "" if is_read else "Unread, "
+
             if is_thread:
                 expand_hint = shortcut_manager.get_shortcut("expand_thread")
-                hint_text = f"Press {expand_hint} to expand." if expand_hint else "Press the expand shortcut to expand."
-                speaker.speak(f"Conversation: {subject}, {len(children)+1} messages. From {email.get('sender')}. {status}. {hint_text}")
+                hint_text = f"Press {expand_hint} to expand." if expand_hint else ""
+                speaker.speak(f"{status_prefix}{sender}, {subject}, {len(children)+1} messages. {hint_text}")
             else:
-                speaker.speak(f"Email from {email.get('sender')}, {subject}. {status}. Press Tab to read content.")
+                speaker.speak(f"{status_prefix}{sender}, {subject}, {date}")
             
             # Publish event
             EventBus.publish(Events.EMAIL_SELECTED, email)
@@ -402,10 +463,15 @@ class EmailListPanel(wx.Panel):
         import threading
         def worker():
             try:
-                # Re-select folder in read-write mode (fetch_threads opened readonly)
-                self.repository.imap_client.select_folder(folder, readonly=False)
-                if self.repository.add_flags([uid], ["\\Seen"], folder_name=folder):
-                    wx.CallAfter(self._apply_read_flag, uid)
+                imap = self.repository.imap_client
+                # Acquire lock to atomically select folder + add flags
+                # This prevents interference with concurrent body fetches
+                with imap._lock:
+                    imap.select_folder(folder, readonly=False)
+                    imap.client.add_flags([uid], ["\\Seen"])
+                # Update DB cache
+                self.repository.add_flags([uid], ["\\Seen"], folder_name=folder)
+                wx.CallAfter(self._apply_read_flag, uid)
             except Exception as e:
                 logger.warning(f"Failed to mark read: {e}")
         threading.Thread(target=worker, daemon=True).start()

@@ -14,12 +14,14 @@ A **fully accessible, free, desktop email client** built with wxPython, designed
 - **⌨️ Keyboard-First Navigation**: Complete functionality without mouse interaction
 - **📧 Multi-Account Support**: Manage multiple email accounts simultaneously
 - **🔐 Secure Authentication**: Uses app-specific passwords with encrypted local storage
-- **📁 Smart Folder Rules**: Automatically organize emails based on custom rules
-- **🔔 Customizable Notifications**: Per-folder and per-sender notification sounds
+- **📁 Smart Folder Rules**: Automatically organize emails based on custom rules (per-account scoping)
+- **🔔 Customizable Notifications**: Per-folder and per-sender notification sounds with background polling
 - **💾 Offline Support**: Local email caching for offline reading
 - **🧵 Thread Management**: Expand and collapse email threads seamlessly
 - **📎 Attachment Support**: Download and manage email attachments
 - **🎨 HTML Email Rendering**: Accessible HTML rendering with semantic structure
+- **🔒 Single Instance**: Only one instance runs at a time; re-launching restores the existing window
+- **📌 System Tray**: Minimizes to tray on close for background notifications
 
 ## 🚀 Quick Start
 
@@ -35,7 +37,7 @@ A **fully accessible, free, desktop email client** built with wxPython, designed
 
 #### Prerequisites
 
-- Python 3.8 or higher
+- Python 3.10 or higher
 - pip (Python package installer)
 - Git
 
@@ -68,6 +70,14 @@ A **fully accessible, free, desktop email client** built with wxPython, designed
    python -m accessible_email_client.main
    ```
 
+#### Building with PyInstaller
+
+```bash
+python -m PyInstaller accessible_email_client/launcher.py --name AccessibleEmailClient --onedir --windowed
+```
+
+The `launcher.py` entry point handles PyInstaller-specific setup (WebView2Loader.dll preloading, hidden imports, STA COM initialization).
+
 #### Development Mode
 
 To enable debug logging, set the `AEC_DEBUG` environment variable:
@@ -85,13 +95,15 @@ python -m accessible_email_client.main
 AEC_DEBUG=1 python -m accessible_email_client.main
 ```
 
+Or set `"debug": true` in the application settings.
+
 ## 📖 User Guide
 
 ### Adding Your First Email Account
 
 1. Launch the application
 2. Press `Alt` to open the menu bar
-3. Navigate to **Account** → **Add Account** (or press `Ctrl+A`)
+3. Navigate to **Account** → **Add Account** (or press `Ctrl+Shift+A`)
 4. Fill in the following details:
    - **Email Address**: Your full email address
    - **App Password**: Your app-specific password (see below)
@@ -109,12 +121,12 @@ AEC_DEBUG=1 python -m accessible_email_client.main
 - **Gmail**: [Create app password](https://support.google.com/accounts/answer/185833)
 - **Outlook/Hotmail**: [Create app password](https://support.microsoft.com/account-billing/using-app-passwords-with-apps-that-don-t-support-two-step-verification-5896ed9b-4263-e681-128a-a6f2979a7944)
 - **Zoho Mail**: Settings → Security → App Passwords
-- **note for zoho mail:** you need to enable imap access to make it functional. [click here to know more](https://www.zoho.com/mail/help/imap-access.html)
+- **Note for Zoho Mail:** You need to enable IMAP access to make it functional. [Click here to know more](https://www.zoho.com/mail/help/imap-access.html)
 - **Other providers**: Check your email provider's security settings
 
 ### Managing Accounts
 
-- **Switch Accounts**: Account menu → Select account
+- **Switch Accounts**: Click on the account name in the folder tree
 - **Edit Account**: Account menu → Manage Accounts → Select account → Edit
 - **Remove Account**: Account menu → Manage Accounts → Select account → Remove
 
@@ -125,49 +137,78 @@ AEC_DEBUG=1 python -m accessible_email_client.main
 - **Left Arrow**: Collapse email thread
 - **Tab**: Move focus to email content area
 - **Enter**: Open selected email
-- **Ctrl Left Arrow/Right**: Navigate between pages (100 emails per page)
+- **Escape**: Return focus from message viewer to email list
+- **Ctrl+Right / Ctrl+Left**: Navigate between pages (100 emails per page)
+- **Alt+Shift+L**: Focus the email list from anywhere
 
 ### Reading Emails
 
 When viewing an email:
-- **Tab**: Move between email content and action buttons
+- **Tab**: Move between email content and action buttons (Reply, Reply All, Forward, etc.)
+- **Shift+Tab**: Return to message list
+- **Escape**: Return focus from WebView to email list
 - **Arrow Keys**: Navigate within email content
 - Screen readers will announce headings, links, and lists properly
 
 ### Email Actions
 
 Available actions (accessible via keyboard):
-- **Reply**: `Alt+Shift+R`
-- **Reply All**: `Alt + Shift + A`
-- **Forward**: `Alt + Shift + F`
-- **Delete**: `Delete` key
 - **Compose New**: `Ctrl+N`
+- **Reply**: `Alt+Shift+R`
+- **Reply All**: `Alt+Shift+A`
+- **Forward**: `Alt+Shift+F`
+- **Delete**: `Delete` key
+- **Archive**: `Ctrl+Alt+A`
+- **Refresh**: `F5`
+- **Exit Application**: `Ctrl+Q`
 
 ### Creating Smart Folder Rules
 
-1. Go to **Tools** → **Manage Rules**
+Rules are **per-account** — a rule created for one email account only applies to that account's emails.
+
+1. Go to **Folder** → **Manage Rules**
 2. Click **Add Rule**
 3. Configure:
    - **Rule Name**: Give your rule a descriptive name
-   - **Conditions**: Define sender or subject criteria
-   - **Action**: Choose target folder
+   - **Conditions**: Define criteria by sender, subject, or recipient
+   - **Action**: Choose target folder and whether to move or copy
+   - **Inbox Behavior**: Choose "Move only" (removes from Inbox) or uncheck to copy (keep in Inbox)
 4. Save the rule
 
 **Example**: Create a "Family" folder and automatically move emails from specific family members.
 
+### System Tray & Background Notifications
+
+- When you close the window (`Alt+F4`), the app **minimizes to the system tray** instead of exiting
+- Email polling continues in the background (checks every 60 seconds)
+- **Toast notifications** appear for new emails
+- **Right-click the tray icon** to open the app or exit completely
+- Use `Ctrl+Q` or tray **Exit** to fully quit the application
+
+### Single Instance
+
+Only one instance of the application runs at a time. If you try to launch it again while it's running (including in the background tray), the existing window will be restored and brought to focus.
+
 ### Customizing Notifications
 
-1. Go to **Tools** → **Notification Settings**
+1. Go to **Settings** → **Settings...**
 2. Configure:
-   - **Global notification sound**: Default for all emails
-   - **Per-folder sounds**: Different sound for specific folders
-   - **Per-sender sounds**: Unique sound for important contacts
+   - **Silent mode**: Toggle with `Ctrl+S`
+   - **Notification Sounds**: Configure sound rules by scope (global/account), type (default/folder/sender), and sound file
+
+### Settings
+
+Access via **Settings** menu:
+- **Normalize HTML for screen readers**: Converts complex HTML into a simpler structure for easier navigation
+- **Keyboard Shortcuts**: View and customize all keyboard shortcuts (`Ctrl+K`)
+- **Signatures**: Create global or per-account email signatures (plain text and HTML, with position control)
 
 ### Accessing Help
 
 - **Help Menu**: Press `Alt+H` to access the help menu
-- **README**: Help → View README (displays this documentation)
-- **Keyboard Shortcuts**: Help → Keyboard Shortcuts
+- **User Guide**: Help → Open User Guide (displays the HTML documentation)
+- **Contact Developer**: Help → Contact Developer (opens a compose dialog)
+- **GitHub**: Help → Open Developer GitHub
 
 ## 🛠️ Technical Details
 
@@ -176,26 +217,31 @@ Available actions (accessible via keyboard):
 The application follows a modular architecture:
 
 - **UI Layer** (`ui/`): wxPython-based user interface
-  - Main frame and menus
-  - Panels (folder list, email list, message viewer)
-  - Dialogs (compose, settings, account management)
+  - Main frame with system tray integration
+  - Panels (folder list, email list, message viewer with WebView2)
+  - Dialogs (compose, settings, account management, rules, shortcuts)
   
 - **Core Layer** (`core/`): Business logic
-  - IMAP/SMTP clients
-  - Account management with secure credential storage
+  - IMAP/SMTP clients with thread-safe locking
+  - Account management with secure credential storage (system keyring)
   - Email caching and offline support
-  - Rule engine for smart folders
-  - Notification system
+  - Rule engine for smart folders (per-account scoping)
+  - Notification system with customizable sounds
+  - Email polling for background notifications
+  - Shortcut manager with customizable key bindings
   
 - **Database Layer** (`database/`): SQLite-based persistence
-  - Email cache
+  - Email cache (headers, bodies, flags)
   - Account metadata
-  - User preferences
+  - Folder rules with account scoping
+  - Automatic schema migrations
   
-- **Accessibility Layer** (`utils/`): Accessibility helpers
-  - Screen reader integration
-  - Accessible widgets
-  - Progress feedback
+- **Utilities** (`utils/`): Accessibility and system helpers
+  - Screen reader integration (accessible_output2)
+  - Accessible widgets (ListCtrl, TextCtrl, Buttons, etc.)
+  - Audible progress feedback
+  - Single-instance guard (Windows mutex + TCP socket IPC)
+  - AppData directory management
 
 ### Supported Email Providers
 
@@ -218,6 +264,7 @@ This client works with any email provider that supports IMAP/SMTP with app-speci
 - **windows-toasts**: Native Windows notifications
 - **pystray**: System tray integration
 - **Pillow**: Image processing
+- **BeautifulSoup4**: HTML parsing and normalization
 
 ## ⚠️ Platform Support Note (macOS / Linux)
 
@@ -226,7 +273,7 @@ This project has been **developed and tested only on Windows**.
 At the moment:
 - I cannot confirm full usability on **macOS or Linux**
 - Availability and behavior of **wxPython and other dependencies** may vary across platforms
-- Some features (especially accessibility-related behavior) may not work as intended outside Windows
+- Some features (especially accessibility-related behavior and single-instance guard) may not work as intended outside Windows
 
 Contributions, testing reports, and platform-specific improvements from macOS and Linux users are **very welcome**.
 
@@ -271,6 +318,7 @@ Contributions are welcome! Please follow these guidelines:
 - HTML normalization is best-effort for complex layouts
 - Offline cache does not include attachments
 - Advanced search and saved searches not yet implemented
+- Single-instance guard is Windows-only (uses Windows named mutex)
 
 ## 🗺️ Roadmap
 

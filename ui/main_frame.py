@@ -8,6 +8,7 @@ from ..utils.accessibility import speaker
 from ..core.notification_manager import notification_manager
 from ..core.email_poller import EmailPoller
 from .tray_icon import TrayIconManager
+from ..utils.single_instance import instance_guard
 import threading
 import webbrowser
 from pathlib import Path
@@ -39,6 +40,9 @@ class MainFrame(wx.Frame):
             on_exit=lambda: wx.CallAfter(self.force_exit)
         )
         self.tray_icon.start()
+
+        # Start single-instance listener so new instances can signal us to restore
+        instance_guard.start_listener(lambda: wx.CallAfter(self.restore_from_tray))
 
     def init_ui(self):
         # Create Menu Bar
@@ -124,7 +128,7 @@ class MainFrame(wx.Frame):
              return
 
         from .dialogs.rules_dialog import RulesDialog
-        dlg = RulesDialog(self, folders=folders)
+        dlg = RulesDialog(self, folders=folders, account_email=account)
         dlg.ShowModal()
         dlg.Destroy()
 
@@ -140,7 +144,7 @@ class MainFrame(wx.Frame):
         logger.info(f"Silent mode {status}")
 
     def on_about(self, event):
-        wx.MessageBox("Accessible Email Client\nVersion 0.1\n\nDesigned for accessibility.", "About", wx.OK | wx.ICON_INFORMATION)
+        wx.MessageBox("Accessible Email Client\nVersion 1.2\n\nDesigned for accessibility.", "About", wx.OK | wx.ICON_INFORMATION)
 
     def on_contact_developer(self, event):
         accounts = self._check_account_config()
@@ -182,6 +186,7 @@ class MainFrame(wx.Frame):
         if hasattr(self, 'tray_icon'):
             self.tray_icon.stop()
         self._unregister_hotkeys()
+        instance_guard.cleanup()
         self.Destroy()
 
 

@@ -53,6 +53,14 @@ class DBManager:
                 if 'references_list' not in columns:
                     logger.info("Migrating: Adding references_list column to emails table")
                     cursor.execute("ALTER TABLE emails ADD COLUMN references_list TEXT")
+
+                # Check rules table for account_id column
+                cursor.execute("PRAGMA table_info(rules)")
+                rules_columns = [info[1] for info in cursor.fetchall()]
+
+                if 'account_id' not in rules_columns:
+                    logger.info("Migrating: Adding account_id column to rules table")
+                    cursor.execute("ALTER TABLE rules ADD COLUMN account_id INTEGER REFERENCES accounts(id)")
                     
                 conn.commit()
         except Exception as e:

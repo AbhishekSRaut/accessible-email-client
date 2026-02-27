@@ -6,7 +6,11 @@ import html
 import os
 import bs4
 import re
-from email.utils import getaddresses
+from datetime import datetime, timezone, timedelta
+from email.utils import getaddresses, parsedate_to_datetime
+
+# IST timezone offset
+_IST = timezone(timedelta(hours=5, minutes=30))
 from ...core.configuration import config
 from ...utils.accessible_widgets import AccessibleListBox, AccessibleButton
 from ...utils.accessibility import speaker
@@ -69,6 +73,10 @@ class MessageViewerPanel(wx.Panel):
         self.webview.Bind(wx.EVT_CHAR_HOOK, self.on_webview_key_down)
         self.webview.Bind(wx.EVT_KEY_DOWN, self.on_webview_key_down)
         self.webview.Bind(wx.html2.EVT_WEBVIEW_NAVIGATING, self.on_webview_navigating)
+        try:
+            self.webview.Bind(wx.html2.EVT_WEBVIEW_NEWWINDOW, self.on_webview_newwindow)
+        except Exception:
+            pass  # Older wxPython may not have this event
         try:
             self.webview.AddScriptMessageHandler("aec")
             self.webview.Bind(wx.html2.EVT_WEBVIEW_SCRIPT_MESSAGE_RECEIVED, self.on_webview_script_message)
@@ -145,6 +153,9 @@ class MessageViewerPanel(wx.Panel):
         """
         if self.webview:
             self.current_email = email_data
+            # Clear stale content immediately
+            self.webview.SetPage("<p>Loading content...</p>", "")
+
             # Fetch full body if needed
             account = email_data.get('account')
             folder = email_data.get('folder')
@@ -270,27 +281,47 @@ class MessageViewerPanel(wx.Panel):
         event.Skip()
 
     def on_webview_loaded(self, event):
-        """Inject keyboard handler script after page loads."""
+        """Inject keyboard handler and link click interceptor after page loads."""
         # Inject Escape key handler - NVDA's virtual buffer doesn't intercept Escape
         # wxPython's AddScriptMessageHandler('aec') creates window.aec.postMessage
         script = """
-        if (!window._aec_esc_handler) {
-            window._aec_esc_handler = true;
-            document.addEventListener('keydown', function(e) {
-                if (e.key === 'Escape') {
+    if (!window._aec_esc_handler) {
+        window._aec_esc_handler = true;
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                try {
+                    if (window.aec && window.aec.postMessage) {
+                        window.aec.postMessage('ESCAPE');
+                    } else if (window.chrome && window.chrome.webview) {
+                        window.chrome.webview.postMessage('ESCAPE');
+                    }
+                } catch(ex) {}
+            }
+        }, true);
+    }
+    if (!window._aec_link_handler) {
+        window._aec_link_handler = true;
+        document.addEventListener('click', function(e) {
+            var link = e.target.closest('a[href]');
+            if (link) {
+                var href = link.getAttribute('href');
+                if (href && href !== '#' && !href.startsWith('javascript:')) {
                     e.preventDefault();
                     e.stopPropagation();
                     try {
                         if (window.aec && window.aec.postMessage) {
-                            window.aec.postMessage('ESCAPE');
+                            window.aec.postMessage('LINK:' + href);
                         } else if (window.chrome && window.chrome.webview) {
-                            window.chrome.webview.postMessage('ESCAPE');
+                            window.chrome.webview.postMessage('LINK:' + href);
                         }
                     } catch(ex) {}
                 }
-            }, true);
-        }
-        """
+            }
+        }, true);
+    }
+    """
         self._inject_script_safe(script)
         event.Skip()
     
@@ -305,19 +336,29 @@ class MessageViewerPanel(wx.Panel):
 
     def on_webview_script_message(self, event):
         try:
-            msg = event.GetString().strip().upper()
+            msg = event.GetString().strip()
         except Exception:
             msg = ""
-        if msg == "ESCAPE":
+        upper_msg = msg.upper()
+        if upper_msg == "ESCAPE":
             self.on_focus_message_list_accel(None)
-        elif msg == "R":
+        elif upper_msg == "R":
             self.on_reply_accel(None)
-        elif msg == "A":
+        elif upper_msg == "A":
             self.on_reply_all_accel(None)
-        elif msg == "F":
+        elif upper_msg == "F":
             self.on_forward_accel(None)
-        elif msg == "L":
+        elif upper_msg == "L":
             self.on_focus_message_list_accel(None)
+        elif msg.startswith("LINK:"):
+            url = msg[5:].strip()
+            if url:
+                try:
+                    import webbrowser
+                    webbrowser.open(url)
+                    speaker.speak("Opening link in browser.")
+                except Exception as e:
+                    logger.error(f"Failed to open link {url}: {e}")
 
     def _install_webview_accel(self):
         if not self.webview:
@@ -605,6 +646,20 @@ class MessageViewerPanel(wx.Panel):
         try:
             import webbrowser
             webbrowser.open(url)
+            speaker.speak("Opening link in browser.")
+        except Exception as e:
+            logger.error(f"Failed to externalize link {url}: {e}")
+
+    def on_webview_newwindow(self, event):
+        """Handle target='_blank' links that don't fire EVT_WEBVIEW_NAVIGATING."""
+        url = event.GetURL()
+        if not url:
+            return
+        event.Veto()
+        try:
+            import webbrowser
+            webbrowser.open(url)
+            speaker.speak("Opening link in browser.")
         except Exception as e:
             logger.error(f"Failed to externalize link {url}: {e}")
 
@@ -645,12 +700,37 @@ class MessageViewerPanel(wx.Panel):
             logger.warning(f"Failed to process HTML quotes: {e}")
             return html_body
 
+    @staticmethod
+    def _format_date_ist(date_val) -> str:
+        """Convert any date value to IST and format as readable string."""
+        if not date_val:
+            return ""
+        try:
+            if isinstance(date_val, datetime):
+                dt = date_val
+            elif isinstance(date_val, str):
+                try:
+                    dt = parsedate_to_datetime(date_val)
+                except Exception:
+                    return date_val
+            else:
+                return str(date_val)
+
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            dt_ist = dt.astimezone(_IST)
+            return dt_ist.strftime("%d %b %Y, %H:%M")
+        except Exception:
+            return str(date_val)
+
     def _build_header_html(self) -> str:
         subject = self.current_headers.get("Subject", "") or (self.current_email or {}).get("subject", "")
         sender = self.current_headers.get("From", "") or (self.current_email or {}).get("sender", "")
         to = self.current_headers.get("To", "")
         cc = self.current_headers.get("Cc", "")
-        date = self.current_headers.get("Date", "") or (self.current_email or {}).get("date", "")
+        date_raw = self.current_headers.get("Date", "") or (self.current_email or {}).get("date", "")
+        # Convert date to IST
+        date = self._format_date_ist(date_raw)
 
         def row(label, value):
             if not value:
